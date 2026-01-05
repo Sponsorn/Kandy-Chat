@@ -1,0 +1,16 @@
+{
+  "name": "kandy-chat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Discord bot that relays Twitch chat",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.15.3",
+    "dotenv": "^16.4.5",
+    "tmi.js": "^1.8.5"
+  }
+}
