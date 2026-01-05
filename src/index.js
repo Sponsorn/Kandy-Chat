@@ -13,7 +13,8 @@ const {
   DISCORD_CHANNEL_ID,
   TWITCH_USERNAME,
   TWITCH_OAUTH,
-  TWITCH_CHANNEL
+  TWITCH_CHANNEL,
+  FREEZE_ALERT_ROLE_ID
 } = process.env;
 
 if (!DISCORD_TOKEN || !DISCORD_CHANNEL_ID) {
@@ -114,13 +115,24 @@ async function start() {
   startFreezeMonitor(process.env, {
     logger: console,
     onFreeze: () => {
-      relaySystemMessage("Stream appears frozen").catch((error) => {
+      const mention = FREEZE_ALERT_ROLE_ID ? `<@&${FREEZE_ALERT_ROLE_ID}> ` : "";
+      relaySystemMessage(`${mention}Stream appears frozen`).catch((error) => {
         console.error("Failed to send freeze alert", error);
       });
     },
     onRecover: () => {
       relaySystemMessage("Stream motion detected again").catch((error) => {
         console.error("Failed to send recovery alert", error);
+      });
+    },
+    onOffline: () => {
+      relaySystemMessage("Stream appears offline").catch((error) => {
+        console.error("Failed to send offline alert", error);
+      });
+    },
+    onOnline: () => {
+      relaySystemMessage("Stream appears online").catch((error) => {
+        console.error("Failed to send online alert", error);
       });
     }
   });

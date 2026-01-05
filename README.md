@@ -1,4 +1,4 @@
-# Kandy Chat
+# Kandy Relay Chat Twitch -> Discord
 
 Minimal Discord bot that relays Twitch chat into a Discord channel, with basic filters.
 
@@ -46,12 +46,15 @@ Requirements:
 
 Env settings:
 - `FREEZE_CHECK_ENABLED=true`
-- `FREEZE_HLS_URL=...` (optional if `FREEZE_CHANNEL` is not set)
+- `FREEZE_HLS_URL=...` (optional; if `FREEZE_CHANNEL` is not set)
 - `FREEZE_CHANNEL=...` (twitch channel name for auto-fetch)
 - `FREEZE_CLIENT_ID=...` (optional; defaults to Twitch web client id)
 - `FREEZE_OAUTH_BEARER=...` (Helix OAuth token, without `oauth:` prefix)
 - `FREEZE_TOKEN_REFRESH_SECONDS=300` (refresh token/HLS URL)
 - `FREEZE_DEBUG=true` (log each sample in terminal)
+- `FREEZE_ALERT_ROLE_ID=...` (role mention for freeze alerts)
+- `FREEZE_OFFLINE_FAILS=3` (consecutive failures before declaring offline)
+- `FREEZE_OFFLINE_BACKOFF_SECONDS=30` (delay between checks when offline)
 - `FREEZE_SAMPLE_SECONDS=5` (how often to sample)
 - `FREEZE_THRESHOLD_SECONDS=20` (unchanged duration to declare frozen)
 - `FILTER_ALLOWED_USERS` allowlist (comma-separated)

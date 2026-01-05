@@ -143,7 +143,10 @@ async function getPlaybackAccessToken(channel, clientId, authToken) {
   )}.m3u8?${params.toString()}`;
 }
 
-export async function startFreezeMonitor(env, { onFreeze, onRecover, logger }) {
+export async function startFreezeMonitor(
+  env,
+  { onFreeze, onRecover, onOffline, onOnline, logger }
+) {
   const enabled = parseBool(env.FREEZE_CHECK_ENABLED, false);
   if (!enabled) return;
 
@@ -153,6 +156,11 @@ export async function startFreezeMonitor(env, { onFreeze, onRecover, logger }) {
   let hlsUrl = env.FREEZE_HLS_URL;
   const tokenRefreshSeconds = parseIntEnv(env.FREEZE_TOKEN_REFRESH_SECONDS, 300);
   const debug = parseBool(env.FREEZE_DEBUG, false);
+  const offlineFailThreshold = parseIntEnv(env.FREEZE_OFFLINE_FAILS, 3);
+  const offlineBackoffSeconds = parseIntEnv(
+    env.FREEZE_OFFLINE_BACKOFF_SECONDS,
+    30
+  );
   let nextRefreshAt = 0;
 
   const sampleSeconds = parseIntEnv(env.FREEZE_SAMPLE_SECONDS, 5);
@@ -176,6 +184,8 @@ export async function startFreezeMonitor(env, { onFreeze, onRecover, logger }) {
   let lastHash = null;
   let lastChangeAt = Date.now();
   let frozen = false;
+  let offline = false;
+  let consecutiveFailures = 0;
 
   while (true) {
     const now = Date.now();
@@ -195,6 +205,11 @@ export async function startFreezeMonitor(env, { onFreeze, onRecover, logger }) {
       }
       await captureFrame(hlsUrl, outputPath, Math.max(4000, sampleSeconds * 1000));
       const hash = await hashFile(outputPath);
+      consecutiveFailures = 0;
+      if (offline) {
+        offline = false;
+        onOnline?.();
+      }
 
       if (lastHash && hash === lastHash) {
         if (debug) {
@@ -216,7 +231,12 @@ export async function startFreezeMonitor(env, { onFreeze, onRecover, logger }) {
         }
       }
     } catch (error) {
+      consecutiveFailures += 1;
       logger?.warn(`Freeze monitor error: ${error.message}`);
+      if (!offline && consecutiveFailures >= offlineFailThreshold) {
+        offline = true;
+        onOffline?.();
+      }
     } finally {
       try {
         await fs.unlink(outputPath);
@@ -225,6 +245,7 @@ export async function startFreezeMonitor(env, { onFreeze, onRecover, logger }) {
       }
     }
 
-    await sleep(sampleSeconds * 1000);
+    const delaySeconds = offline ? offlineBackoffSeconds : sampleSeconds;
+    await sleep(delaySeconds * 1000);
   }
 }
