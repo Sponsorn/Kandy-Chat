@@ -46,7 +46,7 @@ Requirements:
 
 Env settings:
 - `FREEZE_CHECK_ENABLED=true`
-- `FREEZE_HLS_URL=...` (optional if `FREEZE_CHANNEL` set)
+- `FREEZE_HLS_URL=...` (optional if `FREEZE_CHANNEL` is not set)
 - `FREEZE_CHANNEL=...` (twitch channel name for auto-fetch)
 - `FREEZE_CLIENT_ID=...` (optional; defaults to Twitch web client id)
 - `FREEZE_OAUTH_BEARER=...` (Helix OAuth token, without `oauth:` prefix)
