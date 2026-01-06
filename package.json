@@ -6,7 +6,8 @@
   "description": "Discord bot that relays Twitch chat",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "deploy-commands": "node deploy-commands.js"
   },
   "dependencies": {
     "discord.js": "^14.15.3",

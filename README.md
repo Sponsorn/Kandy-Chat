@@ -19,6 +19,10 @@ copy .env.example .env
 3) Fill out `.env`:
 - `DISCORD_TOKEN`: your bot token
 - `DISCORD_CHANNEL_ID`: target channel id
+- `DISCORD_CLIENT_ID`: application client id
+- `DISCORD_GUILD_ID`: guild id for slash commands
+- `ADMIN_ROLE_ID`: admin role allowed to use `/klb restart`
+- `MOD_ROLE_ID`: mod role allowed to use `/klb restart`
 - `TWITCH_USERNAME`: Twitch bot username
 - `TWITCH_OAUTH`: IRC oauth token (format: `oauth:xxxx`), or use refresh flow below
 - `TWITCH_CHANNEL`: channel to read (no #)
@@ -40,6 +44,30 @@ Set in `.env`:
 - `FILTER_BLOCK_COMMANDS=true` blocks `!commands`
 - `FILTER_BLOCKED_WORDS=badword1,badword2` word list for content filter
 - `FILTER_ONLY_BLOCKED_WORDS=true` only messages containing a listed word pass
+- `SUSPICIOUS_FLAG_ENABLED=true` append a warning when a message matches blacklist words
+- `REACTION_DELETE_EMOJI=` restrict reaction-based deletes to a specific emoji
+
+## Reaction deletes (Discord -> Twitch)
+
+When an admin/mod reacts to a relayed Discord message, the bot can delete the
+original Twitch message. Requirements:
+- Bot account must be a moderator in the Twitch channel.
+- Discord bot must have the Guild Members intent enabled.
+
+## Slash commands
+
+Slash commands are registered per guild using a deploy script.
+
+`/klb addblacklist [word]` adds a word to `data/blacklist.json`.
+`/klb removeblacklist [word]` removes a word from `data/blacklist.json`.
+`/klb listblacklist` lists current blacklist words.
+`/klb restart` restarts the bot (admin only; requires a process manager).
+
+Deploy:
+
+```bash
+npm run deploy-commands
+```
 
 ## Freeze monitor (optional)
 

@@ -1,5 +1,14 @@
 import "dotenv/config";
-import { Client, GatewayIntentBits, Partials } from "discord.js";
+import {
+  Client,
+  GatewayIntentBits,
+  Partials,
+  REST,
+  Routes,
+  SlashCommandBuilder,
+  MessageFlags,
+  PermissionsBitField
+} from "discord.js";
 import tmi from "tmi.js";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
@@ -10,6 +19,11 @@ import {
 } from "./filters.js";
 import { startFreezeMonitor } from "./freezeMonitor.js";
 import { refreshTwitchToken } from "./twitchAuth.js";
+import {
+  addBlacklistWord,
+  loadBlacklist,
+  removeBlacklistWord
+} from "./blacklistStore.js";
 
 const {
   DISCORD_TOKEN,
@@ -20,7 +34,11 @@ const {
   TWITCH_CLIENT_ID,
   TWITCH_CLIENT_SECRET,
   TWITCH_REFRESH_TOKEN,
-  FREEZE_ALERT_ROLE_ID
+  FREEZE_ALERT_ROLE_ID,
+  DISCORD_CLIENT_ID,
+  DISCORD_GUILD_ID,
+  SUSPICIOUS_FLAG_ENABLED,
+  REACTION_DELETE_EMOJI
 } = process.env;
 
 if (!DISCORD_TOKEN || !DISCORD_CHANNEL_ID) {
@@ -38,13 +56,20 @@ if (!TWITCH_OAUTH && !(TWITCH_CLIENT_ID && TWITCH_CLIENT_SECRET && TWITCH_REFRES
 const filters = buildFilters(process.env);
 
 const discordClient = new Client({
-  intents: [GatewayIntentBits.Guilds],
-  partials: [Partials.Channel]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.GuildMembers
+  ],
+  partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User]
 });
 
 let twitchClient = null;
 let currentRefreshToken = TWITCH_REFRESH_TOKEN;
 let freezeAuthManaged = false;
+const relayMessageMap = new Map();
+const relayDiscordMap = new Map();
+const RELAY_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
 function createTwitchClient(oauthToken) {
   return new tmi.Client({
@@ -58,6 +83,7 @@ function createTwitchClient(oauthToken) {
 }
 
 let discordChannel = null;
+const runtimeBlacklist = new Set();
 
 discordClient.once("clientReady", async () => {
   try {
@@ -68,8 +94,156 @@ discordClient.once("clientReady", async () => {
   console.log(`Discord connected as ${discordClient.user?.tag ?? "unknown"}`);
 });
 
+discordClient.on("interactionCreate", async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+  if (interaction.commandName !== "klb") return;
+
+  const subcommand = interaction.options.getSubcommand();
+  if (subcommand === "addblacklist") {
+    const word = interaction.options.getString("word", true).trim();
+    if (!word) {
+      await interaction.reply({
+        content: "Word cannot be empty.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    const result = await addBlacklistWord(word);
+    if (result.added) {
+      runtimeBlacklist.add(word);
+      filters.blockedWords.push(word);
+      await interaction.reply({
+        content: `Added blacklist word: \`${word}\``,
+        flags: MessageFlags.Ephemeral
+      });
+    } else {
+      await interaction.reply({
+        content: `Word already in blacklist: \`${word}\``,
+        flags: MessageFlags.Ephemeral
+      });
+    }
+  } else if (subcommand === "removeblacklist") {
+    const word = interaction.options.getString("word", true).trim();
+    if (!word) {
+      await interaction.reply({
+        content: "Word cannot be empty.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    const result = await removeBlacklistWord(word);
+    if (result.removed) {
+      runtimeBlacklist.delete(word);
+      filters.blockedWords = filters.blockedWords.filter((item) => item !== word);
+      await interaction.reply({
+        content: `Removed blacklist word: \`${word}\``,
+        flags: MessageFlags.Ephemeral
+      });
+    } else {
+      await interaction.reply({
+        content: `Word not found: \`${word}\``,
+        flags: MessageFlags.Ephemeral
+      });
+    }
+  } else if (subcommand === "listblacklist") {
+    const words = await loadBlacklist();
+    if (!words.length) {
+      await interaction.reply({
+        content: "Blacklist is empty.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    const list = words.join("\n");
+    await interaction.reply({
+      content: `Blacklist words:\n\`\`\`\n${list}\n\`\`\``,
+      flags: MessageFlags.Ephemeral
+    });
+  } else if (subcommand === "restart") {
+    const adminRoleAllowed =
+      process.env.ADMIN_ROLE_ID &&
+      interaction.member?.roles?.cache?.has(process.env.ADMIN_ROLE_ID);
+    const modRoleAllowed =
+      process.env.MOD_ROLE_ID &&
+      interaction.member?.roles?.cache?.has(process.env.MOD_ROLE_ID);
+    const isAdmin = interaction.memberPermissions?.has(
+      PermissionsBitField.Flags.Administrator
+    );
+    if (!adminRoleAllowed && !modRoleAllowed && !isAdmin) {
+      await interaction.reply({
+        content: "You need Administrator permission to restart the bot.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    await interaction.reply({
+      content: "Restarting bot...",
+      flags: MessageFlags.Ephemeral
+    });
+
+    setTimeout(() => {
+      process.exit(0);
+    }, 1000);
+  }
+});
+
+discordClient.on("messageReactionAdd", async (reaction, user) => {
+  if (user.bot) return;
+  if (reaction.message.channelId !== DISCORD_CHANNEL_ID) return;
+
+  try {
+    if (reaction.partial) {
+      await reaction.fetch();
+    }
+    if (reaction.message.partial) {
+      await reaction.message.fetch();
+    }
+  } catch {
+    return;
+  }
+
+  if (REACTION_DELETE_EMOJI) {
+    const emoji = reaction.emoji?.name ?? "";
+    if (emoji !== REACTION_DELETE_EMOJI) return;
+  }
+
+  const guild = reaction.message.guild;
+  if (!guild) return;
+
+  let member;
+  try {
+    member = await guild.members.fetch(user.id);
+  } catch {
+    return;
+  }
+
+  const adminRoleAllowed =
+    process.env.ADMIN_ROLE_ID && member.roles.cache.has(process.env.ADMIN_ROLE_ID);
+  const modRoleAllowed =
+    process.env.MOD_ROLE_ID && member.roles.cache.has(process.env.MOD_ROLE_ID);
+  const isAdmin = member.permissions.has(PermissionsBitField.Flags.Administrator);
+  if (!adminRoleAllowed && !modRoleAllowed && !isAdmin) return;
+
+  const relay = relayDiscordMap.get(reaction.message.id);
+  if (!relay || !twitchClient) return;
+
+  try {
+    const channelName = relay.twitchChannel.startsWith("#")
+      ? relay.twitchChannel
+      : `#${relay.twitchChannel}`;
+    await twitchClient.deletemessage(channelName, relay.twitchMessageId);
+  } catch (error) {
+    console.warn("Failed to delete Twitch message", error);
+  }
+});
+
 function attachTwitchHandlers(client) {
   client.on("message", handleTwitchMessage);
+  client.on("messagedeleted", handleTwitchMessageDeleted);
   client.on("connected", (address, port) => {
     console.log(`Twitch connected to ${address}:${port}`);
   });
@@ -104,6 +278,17 @@ function formatRelayMessage(username, message) {
   return `[${timestamp}] **${username}**: ${message}`;
 }
 
+function isSuspiciousMessage(message) {
+  if (SUSPICIOUS_FLAG_ENABLED?.toLowerCase() === "false") {
+    return false;
+  }
+  if (!filters.blockedWords.length) return false;
+  const lowerMessage = message.toLowerCase();
+  return filters.blockedWords.some((word) =>
+    word && lowerMessage.includes(word.toLowerCase())
+  );
+}
+
 async function relayToDiscord(username, message) {
   const channel =
     discordChannel ?? (await discordClient.channels.fetch(DISCORD_CHANNEL_ID));
@@ -111,8 +296,11 @@ async function relayToDiscord(username, message) {
     throw new Error("Discord channel not found or not text-based");
   }
 
-  await channel.send(formatRelayMessage(username, message));
+  const suspicious = isSuspiciousMessage(message);
+  const suffix = suspicious ? " ⚠️ Suspicious message" : "";
+  const sent = await channel.send(`${formatRelayMessage(username, message)}${suffix}`);
   console.log(`Relayed: ${username}: ${message}`);
+  return sent;
 }
 
 function handleTwitchMessage(channel, tags, message, self) {
@@ -131,13 +319,47 @@ function handleTwitchMessage(channel, tags, message, self) {
     return;
   }
 
-  relayToDiscord(username, normalized).catch((error) => {
-    console.error("Failed to relay message", error);
-  });
+  relayToDiscord(username, normalized)
+    .then((sent) => {
+      const msgId = tags?.id;
+      if (!msgId || !sent) return;
+      relayMessageMap.set(msgId, { discordMessageId: sent.id });
+      relayDiscordMap.set(sent.id, { twitchMessageId: msgId, twitchChannel: channel });
+      setTimeout(() => {
+        relayMessageMap.delete(msgId);
+        relayDiscordMap.delete(sent.id);
+      }, RELAY_CACHE_TTL_MS);
+    })
+    .catch((error) => {
+      console.error("Failed to relay message", error);
+    });
+}
+
+async function handleTwitchMessageDeleted(channel, username, deletedMessage, userstate) {
+  const targetId = userstate?.["target-msg-id"];
+  if (!targetId) return;
+  const record = relayMessageMap.get(targetId);
+  if (!record) return;
+
+  const discordChannelResolved =
+    discordChannel ?? (await discordClient.channels.fetch(DISCORD_CHANNEL_ID));
+  if (!discordChannelResolved || !discordChannelResolved.isTextBased()) {
+    return;
+  }
+
+  try {
+    const message = await discordChannelResolved.messages.fetch(record.discordMessageId);
+    if (!message) return;
+    if (message.content.includes("(deleted")) return;
+    await message.edit(`${message.content} (deleted)`);
+  } catch (error) {
+    console.warn("Failed to update deleted message", error);
+  }
 }
 
 async function start() {
   await discordClient.login(DISCORD_TOKEN);
+  await hydrateBlacklist();
   const tokenInfo = await refreshAndApplyTwitchToken();
   const oauthToken = tokenInfo?.oauthToken ?? TWITCH_OAUTH;
   if (!oauthToken) {
@@ -187,6 +409,22 @@ async function relaySystemMessage(message) {
   await channel.send(`[SYSTEM] ${message}`);
 }
 
+async function hydrateBlacklist() {
+  try {
+    const words = await loadBlacklist();
+    for (const word of words) {
+      if (!runtimeBlacklist.has(word)) {
+        runtimeBlacklist.add(word);
+        filters.blockedWords.push(word);
+      }
+    }
+  } catch (error) {
+    console.warn("Failed to load blacklist file", error);
+  }
+}
+
+// Slash command registration moved to deploy-commands.js
+
 async function persistRefreshToken(refreshToken) {
   const envPath = join(process.cwd(), ".env");
   let content;
@@ -217,6 +455,7 @@ async function refreshAndApplyTwitchToken() {
     return null;
   }
 
+  const previousRefreshToken = currentRefreshToken;
   const refreshed = await refreshTwitchToken({
     clientId: TWITCH_CLIENT_ID,
     clientSecret: TWITCH_CLIENT_SECRET,
@@ -231,7 +470,7 @@ async function refreshAndApplyTwitchToken() {
     freezeAuthManaged = true;
   }
 
-  if (refreshed.refreshToken !== currentRefreshToken) {
+  if (refreshed.refreshToken !== previousRefreshToken) {
     persistRefreshToken(refreshed.refreshToken).catch((error) => {
       console.warn("Failed to persist Twitch refresh token", error);
     });
