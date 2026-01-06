@@ -152,7 +152,7 @@ export async function startFreezeMonitor(
 
   const channel = env.FREEZE_CHANNEL;
   const clientId = env.FREEZE_CLIENT_ID || "kimne78kx3ncx6brgo4mv6wki5h1ko";
-  const authToken = env.FREEZE_OAUTH_BEARER;
+  const getAuthToken = () => env.FREEZE_OAUTH_BEARER;
   let hlsUrl = env.FREEZE_HLS_URL;
   const tokenRefreshSeconds = parseIntEnv(env.FREEZE_TOKEN_REFRESH_SECONDS, 300);
   const debug = parseBool(env.FREEZE_DEBUG, false);
@@ -196,7 +196,7 @@ export async function startFreezeMonitor(
         if (!channel) {
           throw new Error("FREEZE_CHANNEL is required for auto-fetch");
         }
-        hlsUrl = await getPlaybackAccessToken(channel, clientId, authToken);
+        hlsUrl = await getPlaybackAccessToken(channel, clientId, getAuthToken());
         nextRefreshAt = Date.now() + tokenRefreshSeconds * 1000;
       }
 

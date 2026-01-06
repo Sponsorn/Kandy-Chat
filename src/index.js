@@ -1,12 +1,15 @@
 import "dotenv/config";
 import { Client, GatewayIntentBits, Partials } from "discord.js";
 import tmi from "tmi.js";
+import { promises as fs } from "node:fs";
+import { join } from "node:path";
 import {
   buildFilters,
   normalizeMessage,
   shouldBlockMessage
 } from "./filters.js";
 import { startFreezeMonitor } from "./freezeMonitor.js";
+import { refreshTwitchToken } from "./twitchAuth.js";
 
 const {
   DISCORD_TOKEN,
@@ -14,6 +17,9 @@ const {
   TWITCH_USERNAME,
   TWITCH_OAUTH,
   TWITCH_CHANNEL,
+  TWITCH_CLIENT_ID,
+  TWITCH_CLIENT_SECRET,
+  TWITCH_REFRESH_TOKEN,
   FREEZE_ALERT_ROLE_ID
 } = process.env;
 
@@ -21,8 +27,12 @@ if (!DISCORD_TOKEN || !DISCORD_CHANNEL_ID) {
   throw new Error("Missing DISCORD_TOKEN or DISCORD_CHANNEL_ID in environment");
 }
 
-if (!TWITCH_USERNAME || !TWITCH_OAUTH || !TWITCH_CHANNEL) {
-  throw new Error("Missing TWITCH_USERNAME, TWITCH_OAUTH, or TWITCH_CHANNEL in environment");
+if (!TWITCH_USERNAME || !TWITCH_CHANNEL) {
+  throw new Error("Missing TWITCH_USERNAME or TWITCH_CHANNEL in environment");
+}
+
+if (!TWITCH_OAUTH && !(TWITCH_CLIENT_ID && TWITCH_CLIENT_SECRET && TWITCH_REFRESH_TOKEN)) {
+  throw new Error("Missing TWITCH_OAUTH or refresh credentials in environment");
 }
 
 const filters = buildFilters(process.env);
@@ -32,14 +42,20 @@ const discordClient = new Client({
   partials: [Partials.Channel]
 });
 
-const twitchClient = new tmi.Client({
-  options: { debug: false },
-  identity: {
-    username: TWITCH_USERNAME,
-    password: TWITCH_OAUTH
-  },
-  channels: [TWITCH_CHANNEL]
-});
+let twitchClient = null;
+let currentRefreshToken = TWITCH_REFRESH_TOKEN;
+let freezeAuthManaged = false;
+
+function createTwitchClient(oauthToken) {
+  return new tmi.Client({
+    options: { debug: false },
+    identity: {
+      username: TWITCH_USERNAME,
+      password: oauthToken
+    },
+    channels: [TWITCH_CHANNEL]
+  });
+}
 
 let discordChannel = null;
 
@@ -52,13 +68,28 @@ discordClient.once("clientReady", async () => {
   console.log(`Discord connected as ${discordClient.user?.tag ?? "unknown"}`);
 });
 
-twitchClient.on("connected", (address, port) => {
-  console.log(`Twitch connected to ${address}:${port}`);
-});
+function attachTwitchHandlers(client) {
+  client.on("message", handleTwitchMessage);
+  client.on("connected", (address, port) => {
+    console.log(`Twitch connected to ${address}:${port}`);
+  });
+  client.on("disconnected", (reason) => {
+    console.warn(`Twitch disconnected: ${reason}`);
+  });
+}
 
-twitchClient.on("disconnected", (reason) => {
-  console.warn(`Twitch disconnected: ${reason}`);
-});
+async function connectTwitch(oauthToken) {
+  if (twitchClient) {
+    try {
+      await twitchClient.disconnect();
+    } catch {
+      // ignore disconnect errors
+    }
+  }
+  twitchClient = createTwitchClient(oauthToken);
+  attachTwitchHandlers(twitchClient);
+  await twitchClient.connect();
+}
 
 function formatRelayMessage(username, message) {
   const timestamp = new Intl.DateTimeFormat("sv-SE", {
@@ -107,8 +138,12 @@ function handleTwitchMessage(channel, tags, message, self) {
 
 async function start() {
   await discordClient.login(DISCORD_TOKEN);
-  await twitchClient.connect();
-  twitchClient.on("message", handleTwitchMessage);
+  const tokenInfo = await refreshAndApplyTwitchToken();
+  const oauthToken = tokenInfo?.oauthToken ?? TWITCH_OAUTH;
+  if (!oauthToken) {
+    throw new Error("Missing TWITCH_OAUTH or refresh credentials");
+  }
+  await connectTwitch(oauthToken);
 
   console.log("Relay online: Twitch chat -> Discord channel");
 
@@ -136,6 +171,10 @@ async function start() {
       });
     }
   });
+
+  if (tokenInfo?.expiresIn) {
+    scheduleTokenRefresh(tokenInfo.expiresIn);
+  }
 }
 
 async function relaySystemMessage(message) {
@@ -146,6 +185,81 @@ async function relaySystemMessage(message) {
   }
 
   await channel.send(`[SYSTEM] ${message}`);
+}
+
+async function persistRefreshToken(refreshToken) {
+  const envPath = join(process.cwd(), ".env");
+  let content;
+  try {
+    content = await fs.readFile(envPath, "utf8");
+  } catch (error) {
+    console.warn("Failed to read .env for refresh token update", error);
+    return;
+  }
+
+  const line = `TWITCH_REFRESH_TOKEN=${refreshToken}`;
+  if (content.includes("TWITCH_REFRESH_TOKEN=")) {
+    const updated = content.replace(
+      /^TWITCH_REFRESH_TOKEN=.*$/m,
+      line
+    );
+    if (updated !== content) {
+      await fs.writeFile(envPath, updated, "utf8");
+    }
+    return;
+  }
+
+  await fs.writeFile(envPath, `${content}\n${line}\n`, "utf8");
+}
+
+async function refreshAndApplyTwitchToken() {
+  if (!TWITCH_CLIENT_ID || !TWITCH_CLIENT_SECRET || !currentRefreshToken) {
+    return null;
+  }
+
+  const refreshed = await refreshTwitchToken({
+    clientId: TWITCH_CLIENT_ID,
+    clientSecret: TWITCH_CLIENT_SECRET,
+    refreshToken: currentRefreshToken
+  });
+
+  const oauthToken = `oauth:${refreshed.accessToken}`;
+  currentRefreshToken = refreshed.refreshToken;
+  process.env.TWITCH_OAUTH = oauthToken;
+  if (!process.env.FREEZE_OAUTH_BEARER || freezeAuthManaged) {
+    process.env.FREEZE_OAUTH_BEARER = refreshed.accessToken;
+    freezeAuthManaged = true;
+  }
+
+  if (refreshed.refreshToken !== currentRefreshToken) {
+    persistRefreshToken(refreshed.refreshToken).catch((error) => {
+      console.warn("Failed to persist Twitch refresh token", error);
+    });
+  }
+
+  return {
+    oauthToken,
+    expiresIn: refreshed.expiresIn
+  };
+}
+
+function scheduleTokenRefresh(expiresInSeconds) {
+  if (!expiresInSeconds) return;
+  const refreshIn = Math.max(60, Math.floor(expiresInSeconds * 0.8));
+  setTimeout(async () => {
+    try {
+      const tokenInfo = await refreshAndApplyTwitchToken();
+      if (tokenInfo?.oauthToken) {
+        await connectTwitch(tokenInfo.oauthToken);
+      }
+      if (tokenInfo?.expiresIn) {
+        scheduleTokenRefresh(tokenInfo.expiresIn);
+      }
+    } catch (error) {
+      console.error("Failed to refresh Twitch token", error);
+      scheduleTokenRefresh(Math.max(60, expiresInSeconds));
+    }
+  }, refreshIn * 1000);
 }
 
 start().catch((error) => {

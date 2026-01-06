@@ -20,8 +20,13 @@ copy .env.example .env
 - `DISCORD_TOKEN`: your bot token
 - `DISCORD_CHANNEL_ID`: target channel id
 - `TWITCH_USERNAME`: Twitch bot username
-- `TWITCH_OAUTH`: IRC oauth token (format: `oauth:xxxx`)
+- `TWITCH_OAUTH`: IRC oauth token (format: `oauth:xxxx`), or use refresh flow below
 - `TWITCH_CHANNEL`: channel to read (no #)
+
+Optional (auto refresh tokens):
+- `TWITCH_CLIENT_ID`
+- `TWITCH_CLIENT_SECRET`
+- `TWITCH_REFRESH_TOKEN`
 
 4) Start
 
