@@ -38,7 +38,10 @@ const {
   DISCORD_CLIENT_ID,
   DISCORD_GUILD_ID,
   SUSPICIOUS_FLAG_ENABLED,
-  REACTION_DELETE_EMOJI
+  REACTION_DELETE_EMOJI,
+  REACTION_TIMEOUT_EMOJI,
+  REACTION_BAN_EMOJI,
+  REACTION_TIMEOUT_SECONDS
 } = process.env;
 
 if (!DISCORD_TOKEN || !DISCORD_CHANNEL_ID) {
@@ -206,10 +209,14 @@ discordClient.on("messageReactionAdd", async (reaction, user) => {
     return;
   }
 
-  if (REACTION_DELETE_EMOJI) {
-    const emoji = reaction.emoji?.name ?? "";
-    if (emoji !== REACTION_DELETE_EMOJI) return;
-  }
+  const actionConfig = {
+    delete: REACTION_DELETE_EMOJI,
+    timeout: REACTION_TIMEOUT_EMOJI,
+    ban: REACTION_BAN_EMOJI
+  };
+  const hasAnyAction = Object.values(actionConfig).some(Boolean);
+  const reactionAction = resolveReactionAction(reaction, actionConfig, hasAnyAction);
+  if (!reactionAction) return;
 
   const guild = reaction.message.guild;
   if (!guild) return;
@@ -235,7 +242,14 @@ discordClient.on("messageReactionAdd", async (reaction, user) => {
     const channelName = relay.twitchChannel.startsWith("#")
       ? relay.twitchChannel
       : `#${relay.twitchChannel}`;
-    await twitchClient.deletemessage(channelName, relay.twitchMessageId);
+    if (reactionAction === "delete") {
+      await twitchClient.deletemessage(channelName, relay.twitchMessageId);
+    } else if (reactionAction === "timeout") {
+      const seconds = parseInt(REACTION_TIMEOUT_SECONDS, 10) || 60;
+      await twitchClient.timeout(channelName, relay.twitchUsername, seconds);
+    } else if (reactionAction === "ban") {
+      await twitchClient.ban(channelName, relay.twitchUsername);
+    }
   } catch (error) {
     console.warn("Failed to delete Twitch message", error);
   }
@@ -289,6 +303,18 @@ function isSuspiciousMessage(message) {
   );
 }
 
+function resolveReactionAction(reaction, actionConfig, requireMatch) {
+  const name = reaction.emoji?.name ?? "";
+  const id = reaction.emoji?.id ?? "";
+  const matches = (config) => config && (config === name || config === id);
+
+  if (matches(actionConfig.timeout)) return "timeout";
+  if (matches(actionConfig.ban)) return "ban";
+  if (matches(actionConfig.delete)) return "delete";
+
+  return requireMatch ? null : "delete";
+}
+
 async function relayToDiscord(username, message) {
   const channel =
     discordChannel ?? (await discordClient.channels.fetch(DISCORD_CHANNEL_ID));
@@ -324,7 +350,11 @@ function handleTwitchMessage(channel, tags, message, self) {
       const msgId = tags?.id;
       if (!msgId || !sent) return;
       relayMessageMap.set(msgId, { discordMessageId: sent.id });
-      relayDiscordMap.set(sent.id, { twitchMessageId: msgId, twitchChannel: channel });
+      relayDiscordMap.set(sent.id, {
+        twitchMessageId: msgId,
+        twitchChannel: channel,
+        twitchUsername: tags?.username ?? username
+      });
       setTimeout(() => {
         relayMessageMap.delete(msgId);
         relayDiscordMap.delete(sent.id);

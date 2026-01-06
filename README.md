@@ -54,6 +54,11 @@ original Twitch message. Requirements:
 - Bot account must be a moderator in the Twitch channel.
 - Discord bot must have the Guild Members intent enabled.
 
+Optional reaction actions:
+- `REACTION_TIMEOUT_EMOJI=` emoji name or ID to timeout the sender
+- `REACTION_BAN_EMOJI=` emoji name or ID to ban the sender
+- `REACTION_TIMEOUT_SECONDS=60` timeout duration in seconds
+
 ## Slash commands
 
 Slash commands are registered per guild using a deploy script.
