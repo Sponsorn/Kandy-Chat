@@ -52,7 +52,6 @@ Set in `.env`:
 When an admin/mod reacts to a relayed Discord message, the bot can delete the
 original Twitch message. Requirements:
 - Bot account must be a moderator in the Twitch channel.
-- Discord bot must have the Guild Members intent enabled.
 
 Optional reaction actions:
 - `REACTION_TIMEOUT_EMOJI=` emoji name or ID to timeout the sender
@@ -63,10 +62,10 @@ Optional reaction actions:
 
 Slash commands are registered per guild using a deploy script.
 
-`/klb addblacklist [word]` adds a word to `data/blacklist.json`.
-`/klb removeblacklist [word]` removes a word from `data/blacklist.json`.
-`/klb listblacklist` lists current blacklist words.
-`/klb restart` restarts the bot (admin only; requires a process manager).
+- `/klb addblacklist [word]` adds a word to `data/blacklist.json`.
+- `/klb removeblacklist [word]` removes a word from `data/blacklist.json`.
+- `/klb listblacklist` lists current blacklist words.
+- `/klb restart` restarts the bot (admin only; requires a process manager).
 
 Deploy:
 
