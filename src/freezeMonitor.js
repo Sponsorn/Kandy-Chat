@@ -165,6 +165,7 @@ export async function startFreezeMonitor(
 
   const sampleSeconds = parseIntEnv(env.FREEZE_SAMPLE_SECONDS, 5);
   const thresholdSeconds = parseIntEnv(env.FREEZE_THRESHOLD_SECONDS, 20);
+  const ffmpegTimeoutSeconds = parseIntEnv(env.FREEZE_FFMPEG_TIMEOUT_SECONDS, 8);
   const ffmpegOk = await checkFfmpeg();
 
   if (!ffmpegOk) {
@@ -203,7 +204,8 @@ export async function startFreezeMonitor(
       if (debug) {
         logger?.log("Freeze monitor: capturing frame");
       }
-      await captureFrame(hlsUrl, outputPath, Math.max(4000, sampleSeconds * 1000));
+      const timeoutMs = Math.max(4000, ffmpegTimeoutSeconds * 1000);
+      await captureFrame(hlsUrl, outputPath, timeoutMs);
       const hash = await hashFile(outputPath);
       consecutiveFailures = 0;
       if (offline) {

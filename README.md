@@ -123,6 +123,7 @@ Env settings:
 - `FREEZE_ALERT_ROLE_ID=...` (role mention for freeze alerts)
 - `FREEZE_OFFLINE_FAILS=3` (consecutive failures before declaring offline)
 - `FREEZE_OFFLINE_BACKOFF_SECONDS=30` (delay between checks when offline)
+- `FREEZE_FFMPEG_TIMEOUT_SECONDS=8` (ffmpeg capture timeout)
 - `FREEZE_SAMPLE_SECONDS=5` (how often to sample)
 - `FREEZE_THRESHOLD_SECONDS=20` (unchanged duration to declare frozen)
 - `FILTER_ALLOWED_USERS` allowlist (comma-separated)

@@ -77,6 +77,81 @@ const relayMessageMap = new Map();
 const relayDiscordMap = new Map();
 const RELAY_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
+async function deleteTwitchMessageViaAPI(channelName, messageId) {
+  if (!TWITCH_CLIENT_ID || !currentRefreshToken) {
+    throw new Error("Missing Twitch credentials");
+  }
+
+  // Get fresh access token
+  const tokenInfo = await refreshAndApplyTwitchToken();
+  const accessToken = tokenInfo?.oauthToken?.replace("oauth:", "") ?? process.env.TWITCH_OAUTH?.replace("oauth:", "");
+
+  if (!accessToken) {
+    throw new Error("No Twitch access token available");
+  }
+
+  // Get broadcaster user ID
+  const broadcasterResponse = await fetch(
+    `https://api.twitch.tv/helix/users?login=${channelName.replace("#", "")}`,
+    {
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Client-Id": TWITCH_CLIENT_ID
+      }
+    }
+  );
+
+  if (!broadcasterResponse.ok) {
+    throw new Error(`Failed to get broadcaster ID: ${broadcasterResponse.status}`);
+  }
+
+  const broadcasterData = await broadcasterResponse.json();
+  const broadcasterId = broadcasterData.data?.[0]?.id;
+
+  if (!broadcasterId) {
+    throw new Error("Broadcaster not found");
+  }
+
+  // Get moderator user ID (the bot itself)
+  const modResponse = await fetch(
+    `https://api.twitch.tv/helix/users?login=${TWITCH_USERNAME}`,
+    {
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Client-Id": TWITCH_CLIENT_ID
+      }
+    }
+  );
+
+  if (!modResponse.ok) {
+    throw new Error(`Failed to get moderator ID: ${modResponse.status}`);
+  }
+
+  const modData = await modResponse.json();
+  const moderatorId = modData.data?.[0]?.id;
+
+  if (!moderatorId) {
+    throw new Error("Moderator user not found");
+  }
+
+  // Delete the message using Helix API
+  const deleteResponse = await fetch(
+    `https://api.twitch.tv/helix/moderation/chat?broadcaster_id=${broadcasterId}&moderator_id=${moderatorId}&message_id=${messageId}`,
+    {
+      method: "DELETE",
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Client-Id": TWITCH_CLIENT_ID
+      }
+    }
+  );
+
+  if (!deleteResponse.ok) {
+    const errorText = await deleteResponse.text();
+    throw new Error(`Failed to delete message: ${deleteResponse.status} - ${errorText}`);
+  }
+}
+
 function createTwitchClient(oauthToken) {
   return new tmi.Client({
     options: { debug: false },
@@ -297,20 +372,49 @@ discordClient.on("messageReactionAdd", async (reaction, user) => {
   const relay = relayDiscordMap.get(reaction.message.id);
   if (!relay || !twitchClient) return;
 
+  const channelName = relay.twitchChannel.startsWith("#")
+    ? relay.twitchChannel
+    : `#${relay.twitchChannel}`;
+
+  // Extract the original message content from the Discord message
+  const messageContent = reaction.message.content;
+  const twitchMessageMatch = messageContent.match(/\*\*.*?\*\*: (.+?)(?:⚠️|$)/);
+  const twitchMessageText = twitchMessageMatch ? twitchMessageMatch[1].trim() : "(message unavailable)";
+
   try {
-    const channelName = relay.twitchChannel.startsWith("#")
-      ? relay.twitchChannel
-      : `#${relay.twitchChannel}`;
     if (reactionAction === "delete") {
-      await twitchClient.deletemessage(channelName, relay.twitchMessageId);
+      await deleteTwitchMessageViaAPI(channelName, relay.twitchMessageId);
     } else if (reactionAction === "timeout") {
       const seconds = parseInt(REACTION_TIMEOUT_SECONDS, 10) || 60;
       await twitchClient.timeout(channelName, relay.twitchUsername, seconds);
     } else if (reactionAction === "ban") {
       await twitchClient.ban(channelName, relay.twitchUsername);
     }
+
+    // Remove all reactions from the message
+    try {
+      await reaction.message.reactions.removeAll();
+    } catch (removeError) {
+      console.warn("Failed to remove reactions", removeError);
+    }
+
+    // Post action message to the channel
+    const actionMessages = {
+      delete: `**${user.username}** removed **${relay.twitchUsername}**'s message: "${twitchMessageText}"`,
+      timeout: `**${user.username}** timed out **${relay.twitchUsername}**, message: "${twitchMessageText}"`,
+      ban: `**${user.username}** banned **${relay.twitchUsername}**, message: "${twitchMessageText}"`
+    };
+
+    const actionMessage = actionMessages[reactionAction];
+    if (actionMessage) {
+      try {
+        await reaction.message.channel.send(actionMessage);
+      } catch (sendError) {
+        console.warn("Failed to send action message", sendError);
+      }
+    }
   } catch (error) {
-    console.warn("Failed to delete Twitch message", error);
+    console.warn("Failed to moderate Twitch message", error);
   }
 });
 
