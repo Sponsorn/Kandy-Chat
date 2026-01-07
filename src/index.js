@@ -218,7 +218,7 @@ discordClient.on("interactionCreate", async (interaction) => {
         flags: MessageFlags.Ephemeral
       });
       relaySystemMessage(
-        `${interaction.user.username} added ${word}`
+        `${interaction.user.username} added ${word} to blacklist`
       ).catch((error) => {
         console.error("Failed to send blacklist update message", error);
       });
@@ -246,7 +246,7 @@ discordClient.on("interactionCreate", async (interaction) => {
         flags: MessageFlags.Ephemeral
       });
       relaySystemMessage(
-        `${interaction.user.username} removed ${word}`
+        `${interaction.user.username} removed ${word} from blacklist`
       ).catch((error) => {
         console.error("Failed to send blacklist update message", error);
       });
