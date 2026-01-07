@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { REST, Routes, SlashCommandBuilder } from "discord.js";
 
-const { DISCORD_TOKEN, DISCORD_CLIENT_ID, DISCORD_GUILD_ID } = process.env;
+const { DISCORD_TOKEN, DISCORD_CLIENT_ID, DISCORD_GUILD_ID, ADMIN_ROLE_ID, MOD_ROLE_ID } = process.env;
 
 if (!DISCORD_TOKEN || !DISCORD_CLIENT_ID || !DISCORD_GUILD_ID) {
   throw new Error("Missing DISCORD_TOKEN, DISCORD_CLIENT_ID, or DISCORD_GUILD_ID");
@@ -10,6 +10,7 @@ if (!DISCORD_TOKEN || !DISCORD_CLIENT_ID || !DISCORD_GUILD_ID) {
 const command = new SlashCommandBuilder()
   .setName("klb")
   .setDescription("Kandy Chat commands")
+  .setDefaultMemberPermissions("0")
   .addSubcommand((sub) =>
     sub
       .setName("addblacklist")
@@ -44,9 +45,16 @@ const command = new SlashCommandBuilder()
   );
 
 const rest = new REST({ version: "10" }).setToken(DISCORD_TOKEN);
-await rest.put(
-  Routes.applicationGuildCommands(DISCORD_CLIENT_ID, DISCORD_GUILD_ID),
-  { body: [command.toJSON()] }
-);
+const guildIds = DISCORD_GUILD_ID.split(",").map((id) => id.trim()).filter(Boolean);
 
-console.log("Slash commands deployed");
+if (!guildIds.length) {
+  throw new Error("DISCORD_GUILD_ID must include at least one guild id");
+}
+
+for (const guildId of guildIds) {
+  await rest.put(
+    Routes.applicationGuildCommands(DISCORD_CLIENT_ID, guildId),
+    { body: [command.toJSON()] }
+  );
+  console.log(`Slash commands deployed to guild ${guildId}`);
+}

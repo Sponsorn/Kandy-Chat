@@ -18,11 +18,11 @@ copy .env.example .env
 
 3) Fill out `.env`:
 - `DISCORD_TOKEN`: your bot token
-- `DISCORD_CHANNEL_ID`: target channel id
+- `DISCORD_CHANNEL_ID`: target channel id (comma-separated supported)
 - `DISCORD_CLIENT_ID`: application client id
 - `DISCORD_GUILD_ID`: guild id for slash commands
-- `ADMIN_ROLE_ID`: admin role allowed to use `/klb restart`
-- `MOD_ROLE_ID`: mod role allowed to use `/klb restart`
+- `ADMIN_ROLE_ID`: admin role(s) allowed to use `/klb restart` (comma-separated supported)
+- `MOD_ROLE_ID`: mod role(s) allowed to use `/klb restart` (comma-separated supported)
 - `TWITCH_USERNAME`: Twitch bot username
 - `TWITCH_OAUTH`: IRC oauth token (format: `oauth:xxxx`), or use refresh flow below
 - `TWITCH_CHANNEL`: channel to read (no #)
@@ -67,10 +67,41 @@ Slash commands are registered per guild using a deploy script.
 - `/klb listblacklist` lists current blacklist words.
 - `/klb restart` restarts the bot (admin only; requires a process manager).
 
+Blacklist entries can be plain text or regex in the form `/pattern/flags`.
+Example: `/spam\\d+/i`
+
 Deploy:
 
 ```bash
 npm run deploy-commands
+```
+
+`DISCORD_GUILD_ID` can be a comma-separated list of guild ids.
+
+To hide `/klb`, the command is deployed with no default permissions.
+Assign access in Discord: Server Settings -> Integrations -> Bots -> Kandy Chat -> Manage -> Commands.
+
+## EventSub (optional)
+
+EventSub is used for stream online/offline notifications (in addition to IRC chat).
+
+Setup:
+1) Set EventSub env vars in `.env`:
+- `EVENTSUB_ENABLED=true`
+- `EVENTSUB_SECRET=...` (random secret)
+- `EVENTSUB_PUBLIC_URL=...` (public HTTPS URL to your machine)
+- `EVENTSUB_CALLBACK_PATH=/eventsub`
+- `EVENTSUB_PORT=8080`
+- `EVENTSUB_BROADCASTER=your_channel_name`
+
+2) Expose your local port (example with ngrok):
+```bash
+ngrok http 8080
+```
+
+3) Deploy subscriptions:
+```bash
+npm run deploy-eventsub
 ```
 
 ## Freeze monitor (optional)

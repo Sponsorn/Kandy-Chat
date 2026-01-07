@@ -19,6 +19,7 @@ import {
 } from "./filters.js";
 import { startFreezeMonitor } from "./freezeMonitor.js";
 import { refreshTwitchToken } from "./twitchAuth.js";
+import { startEventSubServer } from "./eventsubServer.js";
 import {
   addBlacklistWord,
   loadBlacklist,
@@ -57,6 +58,8 @@ if (!TWITCH_OAUTH && !(TWITCH_CLIENT_ID && TWITCH_CLIENT_SECRET && TWITCH_REFRES
 }
 
 const filters = buildFilters(process.env);
+const baseBlockedWords = [...filters.blockedWords];
+const blacklistRegexMap = new Map();
 
 const discordClient = new Client({
   intents: [
@@ -85,12 +88,23 @@ function createTwitchClient(oauthToken) {
   });
 }
 
-let discordChannel = null;
+let discordChannels = [];
 const runtimeBlacklist = new Set();
 
 discordClient.once("clientReady", async () => {
   try {
-    discordChannel = await discordClient.channels.fetch(DISCORD_CHANNEL_ID);
+    const channelIds = DISCORD_CHANNEL_ID.split(",").map((id) => id.trim()).filter(Boolean);
+    const resolved = await Promise.all(
+      channelIds.map(async (id) => {
+        try {
+          return await discordClient.channels.fetch(id);
+        } catch (error) {
+          console.error(`Failed to fetch Discord channel ${id}`, error);
+          return null;
+        }
+      })
+    );
+    discordChannels = resolved.filter(Boolean);
   } catch (error) {
     console.error("Failed to fetch Discord channel on startup", error);
   }
@@ -100,6 +114,15 @@ discordClient.once("clientReady", async () => {
 discordClient.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   if (interaction.commandName !== "klb") return;
+
+  const isAllowed = hasPrivilegedRole(interaction.member);
+  if (!isAllowed) {
+    await interaction.reply({
+      content: "You do not have permission to use this command.",
+      flags: MessageFlags.Ephemeral
+    });
+    return;
+  }
 
   const subcommand = interaction.options.getSubcommand();
   if (subcommand === "addblacklist") {
@@ -114,11 +137,15 @@ discordClient.on("interactionCreate", async (interaction) => {
 
     const result = await addBlacklistWord(word);
     if (result.added) {
-      runtimeBlacklist.add(word);
-      filters.blockedWords.push(word);
+      updateBlacklistFromEntries(result.words);
       await interaction.reply({
         content: `Added blacklist word: \`${word}\``,
         flags: MessageFlags.Ephemeral
+      });
+      relaySystemMessage(
+        `${interaction.user.username} added ${word}`
+      ).catch((error) => {
+        console.error("Failed to send blacklist update message", error);
       });
     } else {
       await interaction.reply({
@@ -138,11 +165,15 @@ discordClient.on("interactionCreate", async (interaction) => {
 
     const result = await removeBlacklistWord(word);
     if (result.removed) {
-      runtimeBlacklist.delete(word);
-      filters.blockedWords = filters.blockedWords.filter((item) => item !== word);
+      updateBlacklistFromEntries(result.words);
       await interaction.reply({
         content: `Removed blacklist word: \`${word}\``,
         flags: MessageFlags.Ephemeral
+      });
+      relaySystemMessage(
+        `${interaction.user.username} removed ${word}`
+      ).catch((error) => {
+        console.error("Failed to send blacklist update message", error);
       });
     } else {
       await interaction.reply({
@@ -160,29 +191,29 @@ discordClient.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    const list = words.join("\n");
+    const plain = [];
+    const regexes = [];
+    for (const entry of words) {
+      if (parseRegexEntry(entry)) {
+        regexes.push(entry);
+      } else {
+        plain.push(entry);
+      }
+    }
+
+    const parts = [];
+    if (plain.length) {
+      parts.push(`Words:\n\`\`\`\n${plain.join("\n")}\n\`\`\``);
+    }
+    if (regexes.length) {
+      parts.push(`Regex:\n\`\`\`\n${regexes.join("\n")}\n\`\`\``);
+    }
+    const list = parts.join("\n");
     await interaction.reply({
-      content: `Blacklist words:\n\`\`\`\n${list}\n\`\`\``,
+      content: list,
       flags: MessageFlags.Ephemeral
     });
   } else if (subcommand === "restart") {
-    const adminRoleAllowed =
-      process.env.ADMIN_ROLE_ID &&
-      interaction.member?.roles?.cache?.has(process.env.ADMIN_ROLE_ID);
-    const modRoleAllowed =
-      process.env.MOD_ROLE_ID &&
-      interaction.member?.roles?.cache?.has(process.env.MOD_ROLE_ID);
-    const isAdmin = interaction.memberPermissions?.has(
-      PermissionsBitField.Flags.Administrator
-    );
-    if (!adminRoleAllowed && !modRoleAllowed && !isAdmin) {
-      await interaction.reply({
-        content: "You need Administrator permission to restart the bot.",
-        flags: MessageFlags.Ephemeral
-      });
-      return;
-    }
-
     await interaction.reply({
       content: "Restarting bot...",
       flags: MessageFlags.Ephemeral
@@ -194,9 +225,29 @@ discordClient.on("interactionCreate", async (interaction) => {
   }
 });
 
+function hasPrivilegedRole(member) {
+  const adminRoleAllowed =
+    process.env.ADMIN_ROLE_ID &&
+    process.env.ADMIN_ROLE_ID.split(",")
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .some((id) => member?.roles?.cache?.has(id));
+  const modRoleAllowed =
+    process.env.MOD_ROLE_ID &&
+    process.env.MOD_ROLE_ID.split(",")
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .some((id) => member?.roles?.cache?.has(id));
+  const isAdmin = member?.permissions?.has(
+    PermissionsBitField.Flags.Administrator
+  );
+  return Boolean(adminRoleAllowed || modRoleAllowed || isAdmin);
+}
+
 discordClient.on("messageReactionAdd", async (reaction, user) => {
   if (user.bot) return;
-  if (reaction.message.channelId !== DISCORD_CHANNEL_ID) return;
+  const allowedChannelIds = DISCORD_CHANNEL_ID.split(",").map((id) => id.trim());
+  if (!allowedChannelIds.includes(reaction.message.channelId)) return;
 
   try {
     if (reaction.partial) {
@@ -228,10 +279,18 @@ discordClient.on("messageReactionAdd", async (reaction, user) => {
     return;
   }
 
-  const adminRoleAllowed =
-    process.env.ADMIN_ROLE_ID && member.roles.cache.has(process.env.ADMIN_ROLE_ID);
-  const modRoleAllowed =
-    process.env.MOD_ROLE_ID && member.roles.cache.has(process.env.MOD_ROLE_ID);
+    const adminRoleAllowed =
+      process.env.ADMIN_ROLE_ID &&
+      process.env.ADMIN_ROLE_ID.split(",")
+        .map((id) => id.trim())
+        .filter(Boolean)
+        .some((id) => member.roles.cache.has(id));
+    const modRoleAllowed =
+      process.env.MOD_ROLE_ID &&
+      process.env.MOD_ROLE_ID.split(",")
+        .map((id) => id.trim())
+        .filter(Boolean)
+        .some((id) => member.roles.cache.has(id));
   const isAdmin = member.permissions.has(PermissionsBitField.Flags.Administrator);
   if (!adminRoleAllowed && !modRoleAllowed && !isAdmin) return;
 
@@ -296,11 +355,18 @@ function isSuspiciousMessage(message) {
   if (SUSPICIOUS_FLAG_ENABLED?.toLowerCase() === "false") {
     return false;
   }
-  if (!filters.blockedWords.length) return false;
+  if (!filters.blockedWords.length && !filters.blockedRegexes?.length) return false;
   const lowerMessage = message.toLowerCase();
-  return filters.blockedWords.some((word) =>
+  const wordHit = filters.blockedWords.some((word) =>
     word && lowerMessage.includes(word.toLowerCase())
   );
+  const regexHit = filters.blockedRegexes?.some((regex) => {
+    if (regex.global || regex.sticky) {
+      regex.lastIndex = 0;
+    }
+    return regex.test(message);
+  });
+  return wordHit || regexHit;
 }
 
 function resolveReactionAction(reaction, actionConfig, requireMatch) {
@@ -316,15 +382,27 @@ function resolveReactionAction(reaction, actionConfig, requireMatch) {
 }
 
 async function relayToDiscord(username, message) {
-  const channel =
-    discordChannel ?? (await discordClient.channels.fetch(DISCORD_CHANNEL_ID));
-  if (!channel || !channel.isTextBased()) {
-    throw new Error("Discord channel not found or not text-based");
+  if (!discordChannels.length) {
+    const channelIds = DISCORD_CHANNEL_ID.split(",").map((id) => id.trim()).filter(Boolean);
+    discordChannels = await Promise.all(
+      channelIds.map((id) => discordClient.channels.fetch(id).catch(() => null))
+    );
+    discordChannels = discordChannels.filter(Boolean);
   }
 
   const suspicious = isSuspiciousMessage(message);
   const suffix = suspicious ? " ⚠️ Suspicious message" : "";
-  const sent = await channel.send(`${formatRelayMessage(username, message)}${suffix}`);
+  let sent = null;
+  for (const channel of discordChannels) {
+    if (!channel?.isTextBased()) continue;
+    const result = await channel.send(`${formatRelayMessage(username, message)}${suffix}`);
+    if (suspicious) {
+      addModerationReactions(result).catch((error) => {
+        console.warn("Failed to add moderation reactions", error);
+      });
+    }
+    if (!sent) sent = result;
+  }
   console.log(`Relayed: ${username}: ${message}`);
   return sent;
 }
@@ -349,7 +427,10 @@ function handleTwitchMessage(channel, tags, message, self) {
     .then((sent) => {
       const msgId = tags?.id;
       if (!msgId || !sent) return;
-      relayMessageMap.set(msgId, { discordMessageId: sent.id });
+      relayMessageMap.set(msgId, {
+        discordMessageId: sent.id,
+        discordChannelId: sent.channelId
+      });
       relayDiscordMap.set(sent.id, {
         twitchMessageId: msgId,
         twitchChannel: channel,
@@ -371,8 +452,9 @@ async function handleTwitchMessageDeleted(channel, username, deletedMessage, use
   const record = relayMessageMap.get(targetId);
   if (!record) return;
 
-  const discordChannelResolved =
-    discordChannel ?? (await discordClient.channels.fetch(DISCORD_CHANNEL_ID));
+  const discordChannelResolved = discordChannels.find(
+    (item) => item?.id === record.discordChannelId
+  );
   if (!discordChannelResolved || !discordChannelResolved.isTextBased()) {
     return;
   }
@@ -398,6 +480,23 @@ async function start() {
   await connectTwitch(oauthToken);
 
   console.log("Relay online: Twitch chat -> Discord channel");
+
+  await startEventSubServer(process.env, {
+    logger: console,
+    onEvent: (payload) => {
+      const type = payload?.subscription?.type || "unknown";
+      console.log(`EventSub notification: ${type}`);
+      if (type === "stream.online") {
+        relaySystemMessage("EventSub: stream online").catch((error) => {
+          console.error("Failed to send EventSub online message", error);
+        });
+      } else if (type === "stream.offline") {
+        relaySystemMessage("EventSub: stream offline").catch((error) => {
+          console.error("Failed to send EventSub offline message", error);
+        });
+      }
+    }
+  });
 
   startFreezeMonitor(process.env, {
     logger: console,
@@ -430,30 +529,66 @@ async function start() {
 }
 
 async function relaySystemMessage(message) {
-  const channel =
-    discordChannel ?? (await discordClient.channels.fetch(DISCORD_CHANNEL_ID));
-  if (!channel || !channel.isTextBased()) {
-    throw new Error("Discord channel not found or not text-based");
+  if (!discordChannels.length) {
+    const channelIds = DISCORD_CHANNEL_ID.split(",").map((id) => id.trim()).filter(Boolean);
+    discordChannels = await Promise.all(
+      channelIds.map((id) => discordClient.channels.fetch(id).catch(() => null))
+    );
+    discordChannels = discordChannels.filter(Boolean);
   }
 
-  await channel.send(`[SYSTEM] ${message}`);
+  const payload = `[SYSTEM] ${message}`;
+  await Promise.all(
+    discordChannels
+      .filter((channel) => channel?.isTextBased())
+      .map((channel) => channel.send(payload))
+  );
 }
 
 async function hydrateBlacklist() {
   try {
     const words = await loadBlacklist();
-    for (const word of words) {
-      if (!runtimeBlacklist.has(word)) {
-        runtimeBlacklist.add(word);
-        filters.blockedWords.push(word);
-      }
-    }
+    updateBlacklistFromEntries(words);
   } catch (error) {
     console.warn("Failed to load blacklist file", error);
   }
 }
 
 // Slash command registration moved to deploy-commands.js
+
+function updateBlacklistFromEntries(entries) {
+  runtimeBlacklist.clear();
+  blacklistRegexMap.clear();
+  filters.blockedWords = [...baseBlockedWords];
+  filters.blockedRegexes = [];
+
+  for (const entry of entries) {
+    const trimmed = (entry ?? "").toString().trim();
+    if (!trimmed) continue;
+    runtimeBlacklist.add(trimmed);
+    const regex = parseRegexEntry(trimmed);
+    if (regex) {
+      blacklistRegexMap.set(trimmed, regex);
+      filters.blockedRegexes.push(regex);
+    } else {
+      filters.blockedWords.push(trimmed);
+    }
+  }
+}
+
+function parseRegexEntry(value) {
+  if (!value.startsWith("/")) return null;
+  const lastSlash = value.lastIndexOf("/");
+  if (lastSlash <= 0) return null;
+  const pattern = value.slice(1, lastSlash);
+  const flags = value.slice(lastSlash + 1);
+  try {
+    return new RegExp(pattern, flags);
+  } catch (error) {
+    console.warn(`Invalid blacklist regex "${value}": ${error.message}`);
+    return null;
+  }
+}
 
 async function persistRefreshToken(refreshToken) {
   const envPath = join(process.cwd(), ".env");
@@ -529,6 +664,17 @@ function scheduleTokenRefresh(expiresInSeconds) {
       scheduleTokenRefresh(Math.max(60, expiresInSeconds));
     }
   }, refreshIn * 1000);
+}
+
+async function addModerationReactions(message) {
+  const emojis = [REACTION_DELETE_EMOJI, REACTION_TIMEOUT_EMOJI, REACTION_BAN_EMOJI]
+    .map((emoji) => (emoji ?? "").trim())
+    .filter(Boolean);
+  if (!emojis.length) return;
+
+  for (const emoji of emojis) {
+    await message.react(emoji);
+  }
 }
 
 start().catch((error) => {

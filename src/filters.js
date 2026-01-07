@@ -42,6 +42,7 @@ function buildFilters(env) {
     blockCommands: parseBool(env.FILTER_BLOCK_COMMANDS, true),
     blockEmotes: parseBool(env.FILTER_BLOCK_EMOTES, false),
     blockedWords: parseList(env.FILTER_BLOCKED_WORDS),
+    blockedRegexes: [],
     onlyBlockedWords: parseBool(env.FILTER_ONLY_BLOCKED_WORDS, false),
     allowedUsers: parseList(env.FILTER_ALLOWED_USERS).map((user) => user.toLowerCase()),
     blockedUsers: parseList(env.FILTER_BLOCKED_USERS).map((user) => user.toLowerCase())
@@ -66,12 +67,25 @@ function shouldBlockMessage({ username, message, rawMessage, tags, filters }) {
     return true;
   }
 
-  if (filters.onlyBlockedWords && filters.blockedWords.length) {
-    const lowerMessage = message.toLowerCase();
-    const hit = filters.blockedWords.some((word) => word && lowerMessage.includes(word.toLowerCase()));
+  const regexMatches = (regex) => {
+    if (regex.global || regex.sticky) {
+      regex.lastIndex = 0;
+    }
+    return regex.test(message);
+  };
+
+  const lowerMessage = message.toLowerCase();
+  const wordHit = filters.blockedWords.length
+    ? filters.blockedWords.some((word) => word && lowerMessage.includes(word.toLowerCase()))
+    : false;
+  const regexHit = filters.blockedRegexes?.length
+    ? filters.blockedRegexes.some((regex) => regexMatches(regex))
+    : false;
+  const hit = wordHit || regexHit;
+
+  if (filters.onlyBlockedWords && (filters.blockedWords.length || filters.blockedRegexes?.length)) {
     if (!hit) return true;
   }
-
   return false;
 }
 
