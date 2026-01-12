@@ -8,7 +8,7 @@ RUN apk add --no-cache ffmpeg
 WORKDIR /app
 
 # Copy package files
-COPY package*.json ./
+COPY package.json package-lock.json ./
 
 # Install dependencies
 RUN npm ci --omit=dev
