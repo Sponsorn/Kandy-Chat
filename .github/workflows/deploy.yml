@@ -34,14 +34,16 @@ jobs:
             --output type=docker,dest=/tmp/kandy-chat.tar \
             .
 
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.RPI_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.RPI_HOST }} >> ~/.ssh/known_hosts
+
       - name: Copy image to Raspberry Pi
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.RPI_HOST }}
-          username: ${{ secrets.RPI_USERNAME }}
-          key: ${{ secrets.RPI_SSH_KEY }}
-          source: /tmp/kandy-chat.tar
-          target: /tmp/kandy-chat.tar
+        run: |
+          scp -i ~/.ssh/id_rsa /tmp/kandy-chat.tar ${{ secrets.RPI_USERNAME }}@${{ secrets.RPI_HOST }}:/tmp/kandy-chat.tar
 
       - name: Deploy on Raspberry Pi
         uses: appleboy/ssh-action@v1.0.3
