@@ -657,12 +657,21 @@ discordClient.on("interactionCreate", async (interaction) => {
       }).catch(() => {});
     });
   } else if (subcommand === "restart") {
+    if (!hasAdminRole(interaction.member)) {
+      await interaction.reply({
+        content: "This command requires admin permissions.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
     await interaction.reply({
-      content: "Restarting bot...",
+      content: "Restarting bot... (Docker will automatically restart the container)",
       flags: MessageFlags.Ephemeral
     });
 
     setTimeout(() => {
+      console.log("Restart command received, exiting process...");
       process.exit(0);
     }, 1000);
   } else if (subcommand === "importblacklist") {
