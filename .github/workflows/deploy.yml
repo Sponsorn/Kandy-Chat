@@ -41,8 +41,7 @@ jobs:
           username: ${{ secrets.RPI_USERNAME }}
           key: ${{ secrets.RPI_SSH_KEY }}
           source: /tmp/kandy-chat.tar
-          target: /tmp/
-          strip_components: 2
+          target: /tmp/kandy-chat.tar
 
       - name: Deploy on Raspberry Pi
         uses: appleboy/ssh-action@v1.0.3
