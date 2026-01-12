@@ -24,8 +24,10 @@ ENV NODE_ENV=production
 
 # Run as non-root user for security
 RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001 && \
-    chown -R nodejs:nodejs /app
+    adduser -S nodejs -u 1001
+
+# Change ownership after creating data directory
+RUN chown -R nodejs:nodejs /app
 
 USER nodejs
 
