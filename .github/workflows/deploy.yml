@@ -34,16 +34,18 @@ jobs:
             --output type=docker,dest=/tmp/kandy-chat.tar \
             .
 
-      - name: Setup SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.RPI_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.RPI_HOST }} >> ~/.ssh/known_hosts
+      - name: Install SSH key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.RPI_SSH_KEY }}
+          known_hosts: unnecessary
+
+      - name: Add known hosts
+        run: ssh-keyscan -H ${{ secrets.RPI_HOST }} >> ~/.ssh/known_hosts
 
       - name: Copy image to Raspberry Pi
         run: |
-          scp -i ~/.ssh/id_rsa /tmp/kandy-chat.tar ${{ secrets.RPI_USERNAME }}@${{ secrets.RPI_HOST }}:/tmp/kandy-chat.tar
+          scp /tmp/kandy-chat.tar ${{ secrets.RPI_USERNAME }}@${{ secrets.RPI_HOST }}:/tmp/kandy-chat.tar
 
       - name: Deploy on Raspberry Pi
         uses: appleboy/ssh-action@v1.0.3
