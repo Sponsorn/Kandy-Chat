@@ -7,7 +7,13 @@ import {
   Routes,
   SlashCommandBuilder,
   MessageFlags,
-  PermissionsBitField
+  PermissionsBitField,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ComponentType,
+  AttachmentBuilder
 } from "discord.js";
 import tmi from "tmi.js";
 import { promises as fs } from "node:fs";
@@ -42,6 +48,7 @@ const {
   REACTION_DELETE_EMOJI,
   REACTION_TIMEOUT_EMOJI,
   REACTION_BAN_EMOJI,
+  REACTION_WARN_EMOJI,
   REACTION_TIMEOUT_SECONDS
 } = process.env;
 
@@ -151,6 +158,258 @@ async function deleteTwitchMessageViaAPI(channelName, messageId) {
     throw new Error(`Failed to delete message: ${deleteResponse.status} - ${errorText}`);
   }
 }
+
+async function fetchBlockedTermsFromChannel(channelLogin) {
+  if (!TWITCH_CLIENT_ID || !currentRefreshToken) {
+    throw new Error("Missing Twitch credentials");
+  }
+
+  // Get fresh access token
+  const tokenInfo = await refreshAndApplyTwitchToken();
+  const accessToken = tokenInfo?.oauthToken?.replace("oauth:", "") ?? process.env.TWITCH_OAUTH?.replace("oauth:", "");
+
+  if (!accessToken) {
+    throw new Error("No Twitch access token available");
+  }
+
+  // Get broadcaster user ID
+  const broadcasterResponse = await fetch(
+    `https://api.twitch.tv/helix/users?login=${channelLogin}`,
+    {
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Client-Id": TWITCH_CLIENT_ID
+      }
+    }
+  );
+
+  if (!broadcasterResponse.ok) {
+    throw new Error(`Failed to get broadcaster ID: ${broadcasterResponse.status}`);
+  }
+
+  const broadcasterData = await broadcasterResponse.json();
+  const broadcasterId = broadcasterData.data?.[0]?.id;
+
+  if (!broadcasterId) {
+    throw new Error("Broadcaster not found");
+  }
+
+  // Get moderator user ID (the bot itself)
+  const modResponse = await fetch(
+    `https://api.twitch.tv/helix/users?login=${TWITCH_USERNAME}`,
+    {
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Client-Id": TWITCH_CLIENT_ID
+      }
+    }
+  );
+
+  if (!modResponse.ok) {
+    throw new Error(`Failed to get moderator ID: ${modResponse.status}`);
+  }
+
+  const modData = await modResponse.json();
+  const moderatorId = modData.data?.[0]?.id;
+
+  if (!moderatorId) {
+    throw new Error("Moderator user not found");
+  }
+
+  // Fetch blocked terms with pagination
+  const allTerms = [];
+  let cursor = null;
+
+  do {
+    const url = new URL("https://api.twitch.tv/helix/moderation/blocked_terms");
+    url.searchParams.append("broadcaster_id", broadcasterId);
+    url.searchParams.append("moderator_id", moderatorId);
+    url.searchParams.append("first", "100");
+    if (cursor) {
+      url.searchParams.append("after", cursor);
+    }
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Client-Id": TWITCH_CLIENT_ID
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to fetch blocked terms: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    allTerms.push(...(data.data || []));
+    cursor = data.pagination?.cursor || null;
+  } while (cursor);
+
+  // Return full term objects with metadata
+  return allTerms;
+}
+
+async function addBlockedTermToChannel(channelLogin, term) {
+  if (!TWITCH_CLIENT_ID || !currentRefreshToken) {
+    throw new Error("Missing Twitch credentials");
+  }
+
+  const tokenInfo = await refreshAndApplyTwitchToken();
+  const accessToken = tokenInfo?.oauthToken?.replace("oauth:", "") ?? process.env.TWITCH_OAUTH?.replace("oauth:", "");
+
+  if (!accessToken) {
+    throw new Error("Failed to get access token");
+  }
+
+  // Get broadcaster ID
+  const userResponse = await fetch(
+    `https://api.twitch.tv/helix/users?login=${encodeURIComponent(channelLogin)}`,
+    {
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Client-Id": TWITCH_CLIENT_ID
+      }
+    }
+  );
+
+  if (!userResponse.ok) {
+    throw new Error(`Failed to fetch user info: ${userResponse.status}`);
+  }
+
+  const userData = await userResponse.json();
+  if (!userData.data?.length) {
+    throw new Error(`Channel not found: ${channelLogin}`);
+  }
+
+  const broadcasterId = userData.data[0].id;
+
+  // Get moderator ID (should be the same as broadcaster for this operation)
+  const moderatorId = broadcasterId;
+
+  // Add blocked term
+  const addResponse = await fetch(
+    `https://api.twitch.tv/helix/moderation/blocked_terms?broadcaster_id=${broadcasterId}&moderator_id=${moderatorId}`,
+    {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Client-Id": TWITCH_CLIENT_ID,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ text: term })
+    }
+  );
+
+  if (!addResponse.ok) {
+    const errorText = await addResponse.text();
+    throw new Error(`Failed to add blocked term: ${addResponse.status} ${errorText}`);
+  }
+
+  return await addResponse.json();
+}
+
+async function warnTwitchUser(username, reason) {
+  if (!TWITCH_CLIENT_ID || !currentRefreshToken) {
+    throw new Error("Missing Twitch credentials");
+  }
+
+  const tokenInfo = await refreshAndApplyTwitchToken();
+  const accessToken = tokenInfo?.oauthToken?.replace("oauth:", "") ?? process.env.TWITCH_OAUTH?.replace("oauth:", "");
+
+  if (!accessToken) {
+    throw new Error("No Twitch access token available");
+  }
+
+  // Get broadcaster user ID
+  const broadcasterResponse = await fetch(
+    `https://api.twitch.tv/helix/users?login=${TWITCH_CHANNEL.replace("#", "")}`,
+    {
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Client-Id": TWITCH_CLIENT_ID
+      }
+    }
+  );
+
+  if (!broadcasterResponse.ok) {
+    throw new Error(`Failed to get broadcaster ID: ${broadcasterResponse.status}`);
+  }
+
+  const broadcasterData = await broadcasterResponse.json();
+  const broadcasterId = broadcasterData.data?.[0]?.id;
+
+  if (!broadcasterId) {
+    throw new Error("Broadcaster not found");
+  }
+
+  // Get user ID to warn
+  const userResponse = await fetch(
+    `https://api.twitch.tv/helix/users?login=${username}`,
+    {
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Client-Id": TWITCH_CLIENT_ID
+      }
+    }
+  );
+
+  if (!userResponse.ok) {
+    throw new Error(`Failed to get user ID: ${userResponse.status}`);
+  }
+
+  const userData = await userResponse.json();
+  const userId = userData.data?.[0]?.id;
+
+  if (!userId) {
+    throw new Error("User not found");
+  }
+
+  // Get moderator user ID (the bot itself)
+  const modResponse = await fetch(
+    `https://api.twitch.tv/helix/users?login=${TWITCH_USERNAME}`,
+    {
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Client-Id": TWITCH_CLIENT_ID
+      }
+    }
+  );
+
+  if (!modResponse.ok) {
+    throw new Error(`Failed to get moderator ID: ${modResponse.status}`);
+  }
+
+  const modData = await modResponse.json();
+  const moderatorId = modData.data?.[0]?.id;
+
+  if (!moderatorId) {
+    throw new Error("Moderator user not found");
+  }
+
+  // Send warning
+  const warnResponse = await fetch(
+    `https://api.twitch.tv/helix/moderation/warnings?broadcaster_id=${broadcasterId}&moderator_id=${moderatorId}`,
+    {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Client-Id": TWITCH_CLIENT_ID,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        user_id: userId,
+        reason: reason || "Violating community guidelines"
+      })
+    }
+  );
+
+  if (!warnResponse.ok) {
+    const errorText = await warnResponse.text();
+    throw new Error(`Failed to warn user: ${warnResponse.status} - ${errorText}`);
+  }
+}
+
 
 function createTwitchClient(oauthToken) {
   return new tmi.Client({
@@ -276,17 +535,126 @@ discordClient.on("interactionCreate", async (interaction) => {
       }
     }
 
-    const parts = [];
-    if (plain.length) {
-      parts.push(`Words:\n\`\`\`\n${plain.join("\n")}\n\`\`\``);
+    // Create pages with 25 words per page
+    const createPages = (items, type) => {
+      const pages = [];
+      const itemsPerPage = 25;
+
+      for (let i = 0; i < items.length; i += itemsPerPage) {
+        const pageItems = items.slice(i, i + itemsPerPage);
+        pages.push({
+          type,
+          content: pageItems.join("\n")
+        });
+      }
+      return pages;
+    };
+
+    const allPages = [
+      ...createPages(plain, "Words"),
+      ...createPages(regexes, "Regex")
+    ];
+
+    if (allPages.length === 0) {
+      await interaction.reply({
+        content: "Blacklist is empty.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
     }
-    if (regexes.length) {
-      parts.push(`Regex:\n\`\`\`\n${regexes.join("\n")}\n\`\`\``);
-    }
-    const list = parts.join("\n");
-    await interaction.reply({
-      content: list,
+
+    let currentPageIndex = 0;
+
+    const generateEmbed = (pageIndex) => {
+      const page = allPages[pageIndex];
+      const embed = new EmbedBuilder()
+        .setTitle(`Blacklist - ${page.type}`)
+        .setDescription(`\`\`\`\n${page.content}\n\`\`\``)
+        .setColor(0x5865F2)
+        .setFooter({ text: `Page ${pageIndex + 1} of ${allPages.length} • Total: ${plain.length} words, ${regexes.length} regex` });
+      return embed;
+    };
+
+    const generateButtons = (pageIndex) => {
+      const row = new ActionRowBuilder()
+        .addComponents(
+          new ButtonBuilder()
+            .setCustomId("prev")
+            .setLabel("Previous")
+            .setStyle(ButtonStyle.Primary)
+            .setDisabled(pageIndex === 0),
+          new ButtonBuilder()
+            .setCustomId("next")
+            .setLabel("Next")
+            .setStyle(ButtonStyle.Primary)
+            .setDisabled(pageIndex === allPages.length - 1),
+          new ButtonBuilder()
+            .setCustomId("download")
+            .setLabel("Download as .txt")
+            .setStyle(ButtonStyle.Secondary)
+        );
+      return row;
+    };
+
+    const response = await interaction.reply({
+      embeds: [generateEmbed(currentPageIndex)],
+      components: [generateButtons(currentPageIndex)],
       flags: MessageFlags.Ephemeral
+    });
+
+    const collector = response.createMessageComponentCollector({
+      componentType: ComponentType.Button,
+      time: 300000 // 5 minutes
+    });
+
+    collector.on("collect", async (i) => {
+      if (i.user.id !== interaction.user.id) {
+        await i.reply({
+          content: "These buttons aren't for you!",
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+
+      if (i.customId === "prev") {
+        currentPageIndex = Math.max(0, currentPageIndex - 1);
+        await i.update({
+          embeds: [generateEmbed(currentPageIndex)],
+          components: [generateButtons(currentPageIndex)]
+        });
+      } else if (i.customId === "next") {
+        currentPageIndex = Math.min(allPages.length - 1, currentPageIndex + 1);
+        await i.update({
+          embeds: [generateEmbed(currentPageIndex)],
+          components: [generateButtons(currentPageIndex)]
+        });
+      } else if (i.customId === "download") {
+        // Create text file content
+        let fileContent = "";
+        if (plain.length > 0) {
+          fileContent += "=== Plain Words ===\n" + plain.join("\n") + "\n\n";
+        }
+        if (regexes.length > 0) {
+          fileContent += "=== Regex Patterns ===\n" + regexes.join("\n");
+        }
+
+        const attachment = new AttachmentBuilder(
+          Buffer.from(fileContent, "utf-8"),
+          { name: "blacklist.txt" }
+        );
+
+        await i.reply({
+          content: "Here's your blacklist file:",
+          files: [attachment],
+          flags: MessageFlags.Ephemeral
+        });
+      }
+    });
+
+    collector.on("end", () => {
+      response.edit({
+        components: []
+      }).catch(() => {});
     });
   } else if (subcommand === "restart") {
     await interaction.reply({
@@ -297,6 +665,183 @@ discordClient.on("interactionCreate", async (interaction) => {
     setTimeout(() => {
       process.exit(0);
     }, 1000);
+  } else if (subcommand === "importblacklist") {
+    if (!hasAdminRole(interaction.member)) {
+      await interaction.reply({
+        content: "This command requires admin permissions.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    const channel = interaction.options.getString("channel", true).trim();
+    if (!channel) {
+      await interaction.reply({
+        content: "Channel name cannot be empty.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    try {
+      const termObjects = await fetchBlockedTermsFromChannel(channel);
+
+      if (!termObjects.length) {
+        await interaction.editReply({
+          content: `No blocked terms found in channel: ${channel}`,
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+
+      // Save metadata to separate file
+      const metadataPath = join(process.cwd(), "data", "blacklist-metadata.json");
+      await fs.writeFile(metadataPath, JSON.stringify(termObjects, null, 2), "utf8");
+
+      // Get current blacklist
+      const currentWords = await loadBlacklist();
+      const currentSet = new Set(currentWords);
+
+      // Add new terms (text only)
+      let addedCount = 0;
+      for (const termObj of termObjects) {
+        const text = termObj.text;
+        if (!currentSet.has(text)) {
+          await addBlacklistWord(text);
+          addedCount++;
+        }
+      }
+
+      // Reload and update filters
+      const updatedWords = await loadBlacklist();
+      updateBlacklistFromEntries(updatedWords);
+
+      // Count terms with expiry
+      const withExpiry = termObjects.filter(t => t.expires_at !== null).length;
+
+      await interaction.editReply({
+        content: `Imported ${addedCount} new terms from **${channel}** (${termObjects.length} total found, ${termObjects.length - addedCount} already in blacklist${withExpiry > 0 ? `, ${withExpiry} have expiry dates` : ""})`,
+        flags: MessageFlags.Ephemeral
+      });
+
+      if (addedCount > 0) {
+        relaySystemMessage(
+          `${interaction.user.username} imported ${addedCount} blocked terms from ${channel}`
+        ).catch((error) => {
+          console.error("Failed to send import message", error);
+        });
+      }
+    } catch (error) {
+      console.error("Failed to import blocked terms", error);
+      await interaction.editReply({
+        content: `Failed to import blocked terms: ${error.message}`,
+        flags: MessageFlags.Ephemeral
+      });
+    }
+  } else if (subcommand === "exportblacklist") {
+    if (!hasAdminRole(interaction.member)) {
+      await interaction.reply({
+        content: "This command requires admin permissions.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    const channel = interaction.options.getString("channel", true).trim();
+    if (!channel) {
+      await interaction.reply({
+        content: "Channel name cannot be empty.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    try {
+      // Get current blacklist
+      const localTerms = await loadBlacklist();
+
+      if (!localTerms.length) {
+        await interaction.editReply({
+          content: "Your blacklist is empty. Nothing to export.",
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+
+      // Get existing terms from target channel
+      const existingTerms = await fetchBlockedTermsFromChannel(channel);
+      const existingSet = new Set(existingTerms);
+
+      // Add terms that don't already exist
+      let addedCount = 0;
+      let errorCount = 0;
+
+      for (const term of localTerms) {
+        if (!existingSet.has(term)) {
+          try {
+            await addBlockedTermToChannel(channel, term);
+            addedCount++;
+          } catch (error) {
+            console.error(`Failed to add term "${term}":`, error.message);
+            errorCount++;
+          }
+        }
+      }
+
+      await interaction.editReply({
+        content: `Exported ${addedCount} new terms to **${channel}** (${localTerms.length} total in blacklist, ${localTerms.length - addedCount - errorCount} already in channel${errorCount > 0 ? `, ${errorCount} failed` : ""})`,
+        flags: MessageFlags.Ephemeral
+      });
+
+      if (addedCount > 0) {
+        relaySystemMessage(
+          `${interaction.user.username} exported ${addedCount} blocked terms to ${channel}`
+        ).catch((error) => {
+          console.error("Failed to send export message", error);
+        });
+      }
+    } catch (error) {
+      console.error("Failed to export blocked terms", error);
+      await interaction.editReply({
+        content: `Failed to export blocked terms: ${error.message}`,
+        flags: MessageFlags.Ephemeral
+      });
+    }
+  } else if (subcommand === "warn") {
+    const username = interaction.options.getString("username", true).trim();
+    const reason = interaction.options.getString("reason", false);
+
+    if (!username) {
+      await interaction.reply({
+        content: "Username cannot be empty.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    try {
+      await warnTwitchUser(username, reason || "Violating community guidelines");
+      await interaction.reply({
+        content: `Warned **${username}** on Twitch${reason ? `: ${reason}` : ""}`,
+        flags: MessageFlags.Ephemeral
+      });
+
+      relaySystemMessage(
+        `${interaction.user.username} warned ${username}${reason ? `: ${reason}` : ""}`
+      ).catch((error) => {
+        console.error("Failed to send warn message", error);
+      });
+    } catch (error) {
+      console.error("Failed to warn user", error);
+      await interaction.reply({
+        content: `Failed to warn user: ${error.message}`,
+        flags: MessageFlags.Ephemeral
+      });
+    }
   }
 });
 
@@ -319,6 +864,19 @@ function hasPrivilegedRole(member) {
   return Boolean(adminRoleAllowed || modRoleAllowed || isAdmin);
 }
 
+function hasAdminRole(member) {
+  const adminRoleAllowed =
+    process.env.ADMIN_ROLE_ID &&
+    process.env.ADMIN_ROLE_ID.split(",")
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .some((id) => member?.roles?.cache?.has(id));
+  const isAdmin = member?.permissions?.has(
+    PermissionsBitField.Flags.Administrator
+  );
+  return Boolean(adminRoleAllowed || isAdmin);
+}
+
 discordClient.on("messageReactionAdd", async (reaction, user) => {
   if (user.bot) return;
   const allowedChannelIds = DISCORD_CHANNEL_ID.split(",").map((id) => id.trim());
@@ -338,7 +896,8 @@ discordClient.on("messageReactionAdd", async (reaction, user) => {
   const actionConfig = {
     delete: REACTION_DELETE_EMOJI,
     timeout: REACTION_TIMEOUT_EMOJI,
-    ban: REACTION_BAN_EMOJI
+    ban: REACTION_BAN_EMOJI,
+    warn: REACTION_WARN_EMOJI
   };
   const hasAnyAction = Object.values(actionConfig).some(Boolean);
   const reactionAction = resolveReactionAction(reaction, actionConfig, hasAnyAction);
@@ -389,6 +948,8 @@ discordClient.on("messageReactionAdd", async (reaction, user) => {
       await twitchClient.timeout(channelName, relay.twitchUsername, seconds);
     } else if (reactionAction === "ban") {
       await twitchClient.ban(channelName, relay.twitchUsername);
+    } else if (reactionAction === "warn") {
+      await warnTwitchUser(relay.twitchUsername, "Violating community guidelines");
     }
 
     // Remove all reactions from the message
@@ -402,7 +963,8 @@ discordClient.on("messageReactionAdd", async (reaction, user) => {
     const actionMessages = {
       delete: `**${user.username}** removed **${relay.twitchUsername}**'s message: "${twitchMessageText}"`,
       timeout: `**${user.username}** timed out **${relay.twitchUsername}**, message: "${twitchMessageText}"`,
-      ban: `**${user.username}** banned **${relay.twitchUsername}**, message: "${twitchMessageText}"`
+      ban: `**${user.username}** banned **${relay.twitchUsername}**, message: "${twitchMessageText}"`,
+      warn: `**${user.username}** warned **${relay.twitchUsername}**, message: "${twitchMessageText}"`
     };
 
     const actionMessage = actionMessages[reactionAction];
@@ -480,6 +1042,7 @@ function resolveReactionAction(reaction, actionConfig, requireMatch) {
 
   if (matches(actionConfig.timeout)) return "timeout";
   if (matches(actionConfig.ban)) return "ban";
+  if (matches(actionConfig.warn)) return "warn";
   if (matches(actionConfig.delete)) return "delete";
 
   return requireMatch ? null : "delete";
@@ -771,7 +1334,7 @@ function scheduleTokenRefresh(expiresInSeconds) {
 }
 
 async function addModerationReactions(message) {
-  const emojis = [REACTION_DELETE_EMOJI, REACTION_TIMEOUT_EMOJI, REACTION_BAN_EMOJI]
+  const emojis = [REACTION_DELETE_EMOJI, REACTION_TIMEOUT_EMOJI, REACTION_BAN_EMOJI, REACTION_WARN_EMOJI]
     .map((emoji) => (emoji ?? "").trim())
     .filter(Boolean);
   if (!emojis.length) return;

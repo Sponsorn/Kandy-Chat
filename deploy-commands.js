@@ -42,6 +42,45 @@ const command = new SlashCommandBuilder()
     sub
       .setName("restart")
       .setDescription("Restart the bot (admin only)")
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName("importblacklist")
+      .setDescription("Import blocked terms from a Twitch channel (admin only)")
+      .addStringOption((option) =>
+        option
+          .setName("channel")
+          .setDescription("Twitch channel name to import from")
+          .setRequired(true)
+      )
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName("exportblacklist")
+      .setDescription("Export blacklist to a Twitch channel (admin only)")
+      .addStringOption((option) =>
+        option
+          .setName("channel")
+          .setDescription("Twitch channel name to export to")
+          .setRequired(true)
+      )
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName("warn")
+      .setDescription("Warn a Twitch user")
+      .addStringOption((option) =>
+        option
+          .setName("username")
+          .setDescription("Twitch username to warn")
+          .setRequired(true)
+      )
+      .addStringOption((option) =>
+        option
+          .setName("reason")
+          .setDescription("Reason for the warning")
+          .setRequired(false)
+      )
   );
 
 const rest = new REST({ version: "10" }).setToken(DISCORD_TOKEN);
