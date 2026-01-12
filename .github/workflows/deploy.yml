@@ -41,11 +41,11 @@ jobs:
           known_hosts: unnecessary
 
       - name: Add known hosts
-        run: ssh-keyscan -H ${{ secrets.RPI_HOST }} >> ~/.ssh/known_hosts
+        run: ssh-keyscan -H ${{ secrets.RPI_HOST }} >> ~/.ssh/known_hosts || true
 
       - name: Copy image to Raspberry Pi
         run: |
-          scp /tmp/kandy-chat.tar ${{ secrets.RPI_USERNAME }}@${{ secrets.RPI_HOST }}:/tmp/kandy-chat.tar
+          scp -o StrictHostKeyChecking=accept-new /tmp/kandy-chat.tar ${{ secrets.RPI_USERNAME }}@${{ secrets.RPI_HOST }}:/tmp/kandy-chat.tar
 
       - name: Deploy on Raspberry Pi
         uses: appleboy/ssh-action@v1.0.3
