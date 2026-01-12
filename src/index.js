@@ -674,6 +674,24 @@ discordClient.on("interactionCreate", async (interaction) => {
       console.log("Restart command received, exiting process...");
       process.exit(0);
     }, 1000);
+  } else if (subcommand === "stop") {
+    if (!hasAdminRole(interaction.member)) {
+      await interaction.reply({
+        content: "This command requires admin permissions.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    await interaction.reply({
+      content: "Stopping bot... (Container will stop but not restart automatically)",
+      flags: MessageFlags.Ephemeral
+    });
+
+    setTimeout(() => {
+      console.log("Stop command received, exiting process with error code...");
+      process.exit(1);
+    }, 1000);
   } else if (subcommand === "importblacklist") {
     if (!hasAdminRole(interaction.member)) {
       await interaction.reply({

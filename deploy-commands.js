@@ -45,6 +45,11 @@ const command = new SlashCommandBuilder()
   )
   .addSubcommand((sub) =>
     sub
+      .setName("stop")
+      .setDescription("Stop the bot (admin only)")
+  )
+  .addSubcommand((sub) =>
+    sub
       .setName("importblacklist")
       .setDescription("Import blocked terms from a Twitch channel (admin only)")
       .addStringOption((option) =>
