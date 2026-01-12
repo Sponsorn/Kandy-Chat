@@ -1,0 +1,77 @@
+name: Deploy to Raspberry Pi
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  deploy:
+    name: Deploy to Raspberry Pi
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Login to Docker Hub (optional - uncomment if you want to push to Docker Hub)
+      # - name: Login to Docker Hub
+      #   if: github.event_name != 'pull_request' && secrets.DOCKER_USERNAME != ''
+      #   uses: docker/login-action@v3
+      #   with:
+      #     username: ${{ secrets.DOCKER_USERNAME }}
+      #     password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build Docker image for ARM64
+        run: |
+          docker buildx build \
+            --platform linux/arm64 \
+            --tag kandy-chat:latest \
+            --output type=docker,dest=/tmp/kandy-chat.tar \
+            .
+
+      - name: Install SSH key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.RPI_SSH_KEY }}
+          known_hosts: unnecessary
+
+      - name: Add known hosts
+        run: ssh-keyscan -H ${{ secrets.RPI_HOST }} >> ~/.ssh/known_hosts || true
+
+      - name: Copy image to Raspberry Pi
+        run: |
+          scp -o StrictHostKeyChecking=accept-new /tmp/kandy-chat.tar ${{ secrets.RPI_USERNAME }}@${{ secrets.RPI_HOST }}:/tmp/kandy-chat.tar
+
+      - name: Deploy on Raspberry Pi
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.RPI_HOST }}
+          username: ${{ secrets.RPI_USERNAME }}
+          key: ${{ secrets.RPI_SSH_KEY }}
+          script: |
+            # Load the image
+            docker load -i /tmp/kandy-chat.tar
+
+            # Navigate to the app directory
+            cd /mnt/nvme/kandy-chat
+
+            # Pull latest code
+            git pull origin master
+
+            # Stop and remove old container
+            docker compose down
+
+            # Start the new container
+            docker compose up -d
+
+            # Clean up
+            rm /tmp/kandy-chat.tar
+            docker image prune -f
+
+            # Show logs
+            docker compose logs --tail=50

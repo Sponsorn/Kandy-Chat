@@ -1,48 +1,31 @@
 # Raspberry Pi 5 Deployment Guide
 
-This guide will help you set up the Kandy Chat bot on a Raspberry Pi 5 using Docker and GitHub Actions for automated deployment.
+This guide will help you set up the Kandy Chat bot on a Raspberry Pi 5 using Docker with local deployment.
 
 ## Prerequisites on Raspberry Pi 5
 
-### 1. Install Raspberry Pi OS
-Install Raspberry Pi OS (64-bit) on your Pi 5. You can use Raspberry Pi Imager.
-
-### 2. Update System
+### 1. Install Docker
+Docker should already be installed on your Pi. Verify with:
 ```bash
-sudo apt update && sudo apt upgrade -y
-```
-
-### 3. Install Docker
-```bash
-# Install Docker
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
-
-# Add your user to the docker group
-sudo usermod -aG docker $USER
-
-# Log out and back in for group changes to take effect
-```
-
-### 4. Install Docker Compose
-```bash
-# Docker Compose should be included with Docker now, verify:
+docker --version
 docker compose version
 ```
 
-### 5. Install Git
+### 2. Install Git
 ```bash
 sudo apt install git -y
 ```
 
-### 6. Clone Repository on Raspberry Pi
+## Initial Setup on Raspberry Pi
+
+### 1. Clone Repository
 ```bash
-cd ~
-git clone https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git kandy-chat
+cd /mnt/nvme
+git clone https://github.com/Sponsorn/Kandy-Chat.git kandy-chat
 cd kandy-chat
 ```
 
-### 7. Set Up Environment Variables
+### 2. Set Up Environment Variables
 ```bash
 # Copy the example env file
 cp .env.example .env
@@ -51,90 +34,71 @@ cp .env.example .env
 nano .env
 ```
 
-Fill in all required Discord and Twitch credentials.
+Fill in all required Discord and Twitch credentials:
+- `DISCORD_TOKEN`: your bot token
+- `DISCORD_CHANNEL_ID`: target channel id
+- `DISCORD_CLIENT_ID`: application client id
+- `DISCORD_GUILD_ID`: guild id for slash commands
+- `ADMIN_ROLE_ID`: admin role(s) for commands
+- `MOD_ROLE_ID`: mod role(s) for commands
+- `TWITCH_USERNAME`: Twitch bot username
+- `TWITCH_OAUTH`: IRC oauth token
+- `TWITCH_CHANNEL`: channel to read
 
-### 8. Create Data Directory
+### 3. Create Data Directory
 ```bash
 mkdir -p data
 ```
 
-## GitHub Actions Setup
-
-### 1. Generate SSH Key on Raspberry Pi
+### 4. Deploy Slash Commands
+Before starting the bot for the first time, deploy the slash commands:
 ```bash
-ssh-keygen -t ed25519 -C "github-actions"
-# Save to default location, set a passphrase if desired
+# Install dependencies temporarily for deployment
+npm install
+npm run deploy-commands
+
+# Clean up (Docker will install its own copy)
+rm -rf node_modules
 ```
 
-### 2. Add Public Key to Authorized Keys
+## Deploying the Bot
+
+### Initial Deployment
 ```bash
-cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
-chmod 600 ~/.ssh/authorized_keys
-```
+cd /mnt/nvme/kandy-chat
 
-### 3. Get Your Raspberry Pi's IP Address
-```bash
-hostname -I
-```
-
-### 4. Add GitHub Secrets
-Go to your GitHub repository → Settings → Secrets and variables → Actions → New repository secret
-
-Add the following secrets:
-
-- `RPI_HOST`: Your Raspberry Pi's IP address (e.g., `192.168.1.100`)
-- `RPI_USERNAME`: Your username on the Pi (e.g., `pi`)
-- `RPI_SSH_KEY`: Contents of `~/.ssh/id_ed25519` (the private key)
-  ```bash
-  cat ~/.ssh/id_ed25519
-  # Copy entire output including BEGIN and END lines
-  ```
-
-Optional (only if you want to push to Docker Hub):
-- `DOCKER_USERNAME`: Your Docker Hub username
-- `DOCKER_PASSWORD`: Your Docker Hub password or access token
-
-## Initial Deployment
-
-### Manual First Deploy on Raspberry Pi
-```bash
-cd ~/kandy-chat
-
-# Build the Docker image
-docker compose build
-
-# Start the container
-docker compose up -d
+# Build and start the container
+docker compose up -d --build
 
 # View logs
 docker compose logs -f
 ```
 
-### Verify It's Running
+### Updating the Bot
+When you push changes to GitHub, update your Pi with:
+
 ```bash
-docker compose ps
-docker compose logs --tail=50
+cd /mnt/nvme/kandy-chat
+
+# Pull latest code
+git pull
+
+# Rebuild and restart
+docker compose up -d --build
+
+# View logs
+docker compose logs -f
 ```
-
-## Automated Deployment with GitHub Actions
-
-After setting up the GitHub secrets, every push to the `master` branch will:
-1. Build a Docker image for ARM64 architecture
-2. Transfer it to your Raspberry Pi
-3. Stop the old container
-4. Start the new container
-5. Show the latest logs
-
-You can also manually trigger a deployment:
-- Go to Actions → Deploy to Raspberry Pi → Run workflow
 
 ## Useful Commands
 
-### On Raspberry Pi
-
+### Container Management
 ```bash
-# View logs
+# View logs (follow mode)
 docker compose logs -f
+
+# View recent logs
+docker compose logs --tail=50
 
 # Restart the bot
 docker compose restart
@@ -145,17 +109,32 @@ docker compose down
 # Start the bot
 docker compose up -d
 
-# Rebuild and restart
-docker compose up -d --build
-
 # View container status
 docker compose ps
 
 # Execute commands inside container
 docker compose exec kandy-chat sh
+```
 
+### Resource Monitoring
+```bash
 # View resource usage
 docker stats kandy-chat-bot
+
+# System resources
+htop
+
+# Disk usage
+df -h
+```
+
+### Clean Up
+```bash
+# Remove old images
+docker image prune -f
+
+# Remove all unused Docker resources
+docker system prune -a
 ```
 
 ## Port Forwarding for EventSub
@@ -164,25 +143,31 @@ If you're using EventSub, you'll need to expose port 8080 (or your configured po
 
 1. Set up port forwarding on your router: `8080 → RPI_IP:8080`
 2. Consider using a reverse proxy like nginx for HTTPS
-3. Or use a service like ngrok for testing
+3. Or use a service like ngrok for testing:
+   ```bash
+   ngrok http 8080
+   ```
 
 ## Troubleshooting
 
 ### Container won't start
 ```bash
+# View detailed logs
 docker compose logs
-```
 
-### Check if .env is correct
-```bash
+# Check environment variables
 cat .env
-```
 
-### Rebuild image from scratch
-```bash
+# Rebuild from scratch
 docker compose down
 docker compose build --no-cache
 docker compose up -d
+```
+
+### Permission issues
+```bash
+# Ensure you own the directory
+sudo chown -R sponsorn:sponsorn /mnt/nvme/kandy-chat
 ```
 
 ### Check Docker is running
@@ -190,14 +175,18 @@ docker compose up -d
 sudo systemctl status docker
 ```
 
-### GitHub Actions deployment fails
-- Verify SSH key is correct in GitHub secrets
-- Test SSH connection: `ssh -i ~/.ssh/id_ed25519 user@rpi_ip`
-- Check Raspberry Pi is accessible from internet (if deploying from outside network)
+### Out of disk space
+```bash
+# Check disk usage
+df -h
+
+# Clean up Docker
+docker system prune -a
+```
 
 ## Security Recommendations
 
-1. Use a firewall on your Pi:
+1. **Firewall**: Use UFW to restrict access
    ```bash
    sudo apt install ufw
    sudo ufw allow ssh
@@ -205,42 +194,94 @@ sudo systemctl status docker
    sudo ufw enable
    ```
 
-2. Change default SSH port
-3. Use SSH key authentication only (disable password auth)
-4. Keep your system updated:
+2. **Keep system updated**:
    ```bash
    sudo apt update && sudo apt upgrade -y
    ```
 
-5. Don't commit your `.env` file to Git (it's already in `.gitignore`)
+3. **Never commit `.env` to Git** - it's already in `.gitignore`
+
+4. **SSH security**:
+   - Change default SSH port
+   - Use SSH key authentication only
+   - Disable password authentication
+
+## Auto-Start on Boot
+
+The `restart: unless-stopped` policy in [docker-compose.yml](docker-compose.yml) ensures the bot automatically starts when your Pi boots.
+
+To manually control this:
+```bash
+# Disable auto-restart
+docker compose down
+
+# Enable auto-restart
+docker compose up -d
+```
 
 ## Monitoring
 
-### Set up auto-restart on boot
-The `restart: unless-stopped` policy in docker-compose.yml ensures the bot restarts automatically.
-
-### View system resources
+### View System Resources
 ```bash
-# CPU and memory usage
+# CPU and memory
 htop
 
-# Disk usage
-df -h
-
 # Docker resource usage
-docker stats
+docker stats kandy-chat-bot
+
+# Disk usage
+df -h /mnt/nvme
 ```
 
-## Updates
-
-When you push code changes to GitHub:
-1. GitHub Actions will automatically build and deploy
-2. The bot will restart with the new code
-3. Your data directory and .env persist across updates
-
-Manual update:
+### View Bot Logs
 ```bash
-cd ~/kandy-chat
+# Live logs
+docker compose logs -f
+
+# Last 100 lines
+docker compose logs --tail=100
+
+# Logs from last hour
+docker compose logs --since 1h
+```
+
+## Quick Reference
+
+```bash
+# Update and restart bot
+cd /mnt/nvme/kandy-chat && git pull && docker compose up -d --build
+
+# View logs
+docker compose logs -f
+
+# Restart bot
+docker compose restart
+
+# Stop bot
+docker compose down
+
+# Clean up old images
+docker image prune -f
+```
+
+## Simple Update Script
+
+You can create a simple script to update the bot. Create `/mnt/nvme/kandy-chat/update.sh`:
+
+```bash
+#!/bin/bash
+cd /mnt/nvme/kandy-chat
 git pull
 docker compose up -d --build
+docker compose logs --tail=50
+```
+
+Make it executable:
+```bash
+chmod +x /mnt/nvme/kandy-chat/update.sh
+```
+
+Then update with:
+```bash
+/mnt/nvme/kandy-chat/update.sh
 ```
