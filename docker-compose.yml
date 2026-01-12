@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  kandy-chat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kandy-chat-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Persist blacklist and other data
+      - ./data:/app/data
+    ports:
+      # Only needed if EventSub is enabled
+      - "${EVENTSUB_PORT:-8080}:${EVENTSUB_PORT:-8080}"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
