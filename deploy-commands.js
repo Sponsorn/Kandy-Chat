@@ -24,29 +24,14 @@ const command = new SlashCommandBuilder()
   )
   .addSubcommand((sub) =>
     sub
-      .setName("removeblacklist")
-      .setDescription("Remove a word from the blacklist")
+      .setName("exportblacklist")
+      .setDescription("Export blacklist to a Twitch channel (admin only)")
       .addStringOption((option) =>
         option
-          .setName("word")
-          .setDescription("Word to remove")
+          .setName("channel")
+          .setDescription("Twitch channel name to export to")
           .setRequired(true)
       )
-  )
-  .addSubcommand((sub) =>
-    sub
-      .setName("listblacklist")
-      .setDescription("List blacklist words")
-  )
-  .addSubcommand((sub) =>
-    sub
-      .setName("restart")
-      .setDescription("Restart the bot (admin only)")
-  )
-  .addSubcommand((sub) =>
-    sub
-      .setName("stop")
-      .setDescription("Stop the bot (admin only)")
   )
   .addSubcommand((sub) =>
     sub
@@ -61,14 +46,29 @@ const command = new SlashCommandBuilder()
   )
   .addSubcommand((sub) =>
     sub
-      .setName("exportblacklist")
-      .setDescription("Export blacklist to a Twitch channel (admin only)")
+      .setName("listblacklist")
+      .setDescription("List blacklist words")
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName("removeblacklist")
+      .setDescription("Remove a word from the blacklist")
       .addStringOption((option) =>
         option
-          .setName("channel")
-          .setDescription("Twitch channel name to export to")
+          .setName("word")
+          .setDescription("Word to remove")
           .setRequired(true)
       )
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName("restart")
+      .setDescription("Restart the bot (admin only)")
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName("stop")
+      .setDescription("Stop the bot (admin only)")
   )
   .addSubcommand((sub) =>
     sub

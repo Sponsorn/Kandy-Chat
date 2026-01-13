@@ -1026,9 +1026,72 @@ discordClient.on("messageReactionAdd", async (reaction, user) => {
   }
 });
 
+// Subscription thank you helper
+function getTierName(tier) {
+  switch (tier) {
+    case "1000":
+      return "Tier 1";
+    case "2000":
+      return "Tier 2";
+    case "3000":
+      return "Tier 3";
+    case "Prime":
+    case "prime":
+      return "Prime";
+    default:
+      return tier;
+  }
+}
+
+async function sendTwitchMessage(message) {
+  if (!twitchClient) {
+    console.warn("Cannot send Twitch message: client not connected");
+    return;
+  }
+  try {
+    await twitchClient.say(TWITCH_CHANNEL, message);
+  } catch (error) {
+    console.error("Failed to send Twitch message:", error);
+  }
+}
+
+// Subscription event handlers
+function handleTwitchSubscription(channel, username, method, message, userstate) {
+  const tier = getTierName(method.plan);
+
+  const thankYouMessage = `hype Welcome to Kandyland, ${username}! kandyKiss`;
+  sendTwitchMessage(thankYouMessage);
+
+  console.log(`New subscription: ${username} (${tier})`);
+}
+
+function handleTwitchResub(channel, username, months, message, userstate, methods) {
+  const tier = getTierName(methods.plan);
+
+  const thankYouMessage = `hype Welcome back to Kandyland, ${username}! kandyKiss`;
+  sendTwitchMessage(thankYouMessage);
+
+  console.log(`Resub: ${username} (${tier}, ${months} months)`);
+}
+
+function handleTwitchSubGift(channel, username, streakMonths, recipient, methods, userstate) {
+  const tier = getTierName(methods.plan);
+  const giftCount = userstate["msg-param-sender-count"] || 1;
+
+  // Determine if single or multiple gifts
+  const recipientText = giftCount === 1 ? recipient : `${giftCount} users`;
+  const thankYouMessage = `Thank you for gifting to ${recipientText}, ${username}! kandyHype`;
+  sendTwitchMessage(thankYouMessage);
+
+  console.log(`Gift sub: ${username} -> ${recipient} (${tier}, ${giftCount} total gifts)`);
+}
+
 function attachTwitchHandlers(client) {
   client.on("message", handleTwitchMessage);
   client.on("messagedeleted", handleTwitchMessageDeleted);
+  client.on("subscription", handleTwitchSubscription);
+  client.on("resub", handleTwitchResub);
+  client.on("subgift", handleTwitchSubGift);
   client.on("connected", (address, port) => {
     console.log(`Twitch connected to ${address}:${port}`);
   });

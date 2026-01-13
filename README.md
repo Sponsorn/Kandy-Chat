@@ -47,6 +47,17 @@ Set in `.env`:
 - `SUSPICIOUS_FLAG_ENABLED=true` append a warning when a message matches blacklist words
 - `REACTION_DELETE_EMOJI=` restrict reaction-based deletes to a specific emoji
 
+## Twitch Chat Automation
+
+The bot automatically responds to Twitch events:
+
+### Subscription Thank You Messages
+When someone subscribes, resubs, or gifts a sub, the bot automatically sends a thank you message in Twitch chat:
+- New Sub: "hype Welcome to Kandyland, [Username]! kandyKiss"
+- Resub: "hype Welcome back to Kandyland, [Username]! kandyKiss"
+- Gift Sub (single): "Thank you for gifting to [recipient], [Gifter]! kandyHype"
+- Gift Sub (multiple): "Thank you for gifting to [count] users, [Gifter]! kandyHype"
+
 ## Reaction deletes (Discord -> Twitch)
 
 When an admin/mod reacts to a relayed Discord message, the bot can delete the
