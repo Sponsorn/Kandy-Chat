@@ -284,8 +284,27 @@ async function addBlockedTermToChannel(channelLogin, term) {
 
   const broadcasterId = userData.data[0].id;
 
-  // Get moderator ID (should be the same as broadcaster for this operation)
-  const moderatorId = broadcasterId;
+  // Get moderator ID (the authenticated user making the request)
+  const moderatorResponse = await fetch(
+    "https://api.twitch.tv/helix/users",
+    {
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Client-Id": TWITCH_CLIENT_ID
+      }
+    }
+  );
+
+  if (!moderatorResponse.ok) {
+    throw new Error(`Failed to fetch moderator info: ${moderatorResponse.status}`);
+  }
+
+  const moderatorData = await moderatorResponse.json();
+  if (!moderatorData.data?.length) {
+    throw new Error("Could not get authenticated user ID");
+  }
+
+  const moderatorId = moderatorData.data[0].id;
 
   // Add blocked term
   const addResponse = await fetch(
