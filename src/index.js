@@ -42,6 +42,7 @@ const {
   TWITCH_CLIENT_SECRET,
   TWITCH_REFRESH_TOKEN,
   TWITCH_CHANNEL_MAPPING,
+  TWITCH_RELAY_CHANNELS,
   FREEZE_ALERT_ROLE_ID,
   DISCORD_CLIENT_ID,
   DISCORD_GUILD_ID,
@@ -75,6 +76,11 @@ const BOT_START_TIME = Date.now();
 
 // Parse Twitch channels (comma-separated)
 const TWITCH_CHANNELS = TWITCH_CHANNEL.split(",").map((ch) => ch.trim().toLowerCase()).filter(Boolean);
+
+// Parse channels that should be relayed to Discord (optional, defaults to all)
+const relayChannels = TWITCH_RELAY_CHANNELS
+  ? new Set(TWITCH_RELAY_CHANNELS.split(",").map((ch) => ch.trim().toLowerCase()).filter(Boolean))
+  : null;
 
 // Parse channel mapping (format: twitchChannel1:discordChannelId1,twitchChannel2:discordChannelId2)
 // If no mapping provided, all Twitch channels relay to all Discord channels
@@ -1240,6 +1246,34 @@ function handleTwitchMessage(channel, tags, message, self) {
   if (self) return;
 
   const username = tags["display-name"] || tags.username || "unknown";
+
+  // Check if this channel should be relayed to Discord
+  if (relayChannels) {
+    const normalizedChannel = channel.toLowerCase().replace(/^#/, "");
+    if (!relayChannels.has(normalizedChannel)) {
+      // Don't relay messages from this channel, but still process commands
+      if (message.trim() === "!klbping") {
+        const isMod = tags.mod || false;
+        const isBroadcaster = tags.badges?.broadcaster === "1";
+
+        if (isMod || isBroadcaster) {
+          const uptimeMs = Date.now() - BOT_START_TIME;
+          const uptimeSeconds = Math.floor(uptimeMs / 1000);
+          const hours = Math.floor(uptimeSeconds / 3600);
+          const minutes = Math.floor((uptimeSeconds % 3600) / 60);
+          const seconds = uptimeSeconds % 60;
+
+          let uptimeStr = "";
+          if (hours > 0) uptimeStr += `${hours}h `;
+          if (minutes > 0 || hours > 0) uptimeStr += `${minutes}m `;
+          uptimeStr += `${seconds}s`;
+
+          sendTwitchMessage(`pong, uptime: ${uptimeStr.trim()}`, channel);
+        }
+      }
+      return;
+    }
+  }
 
   // Handle !klbping command (mods/broadcaster only)
   if (message.trim() === "!klbping") {

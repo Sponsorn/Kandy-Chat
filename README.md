@@ -50,6 +50,19 @@ TWITCH_CHANNEL=channel1,channel2,channel3
 
 All messages from all channels will be relayed to all Discord channels. Messages will be prefixed with `[channelname]` to show their origin.
 
+### Selective Relay
+You can join multiple channels but only relay specific channels to Discord:
+
+```env
+TWITCH_CHANNEL=kandyland,kandylandvods
+TWITCH_RELAY_CHANNELS=kandyland
+```
+
+With this configuration:
+- Bot joins both `kandyland` and `kandylandvods`
+- Only messages from `kandyland` are relayed to Discord
+- `kandylandvods` messages are not relayed (useful for VOD channels or monitoring without spam)
+
 ### Channel Mapping (Advanced)
 You can map specific Twitch channels to specific Discord channels:
 
