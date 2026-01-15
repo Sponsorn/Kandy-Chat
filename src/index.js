@@ -1390,7 +1390,13 @@ async function start() {
     }
   });
 
-  startFreezeMonitor(process.env, {
+  // Pass the OAuth token (without oauth: prefix) to freeze monitor if FREEZE_OAUTH_BEARER isn't set
+  const freezeEnv = { ...process.env };
+  if (!freezeEnv.FREEZE_OAUTH_BEARER && oauthToken) {
+    freezeEnv.FREEZE_OAUTH_BEARER = oauthToken.replace(/^oauth:/, "");
+  }
+
+  startFreezeMonitor(freezeEnv, {
     logger: console,
     onFreeze: () => {
       const mention = FREEZE_ALERT_ROLE_ID ? `<@&${FREEZE_ALERT_ROLE_ID}> ` : "";
