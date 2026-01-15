@@ -1363,6 +1363,12 @@ async function start() {
   if (!oauthToken) {
     throw new Error("Missing TWITCH_OAUTH or refresh credentials");
   }
+
+  console.log(`Attempting to join Twitch channels: ${TWITCH_CHANNELS.join(", ")}`);
+  if (relayChannels) {
+    console.log(`Relay filter active - only relaying: ${Array.from(relayChannels).join(", ")}`);
+  }
+
   await connectTwitch(oauthToken);
 
   console.log("Relay online: Twitch chat -> Discord channel");
