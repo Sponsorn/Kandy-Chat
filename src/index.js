@@ -67,6 +67,7 @@ if (!TWITCH_OAUTH && !(TWITCH_CLIENT_ID && TWITCH_CLIENT_SECRET && TWITCH_REFRES
 const filters = buildFilters(process.env);
 const baseBlockedWords = [...filters.blockedWords];
 const blacklistRegexMap = new Map();
+const BOT_START_TIME = Date.now();
 
 const discordClient = new Client({
   intents: [
@@ -1187,6 +1188,29 @@ function handleTwitchMessage(channel, tags, message, self) {
   if (self) return;
 
   const username = tags["display-name"] || tags.username || "unknown";
+
+  // Handle !klbping command (mods/broadcaster only)
+  if (message.trim() === "!klbping") {
+    const isMod = tags.mod || false;
+    const isBroadcaster = tags.badges?.broadcaster === "1";
+
+    if (isMod || isBroadcaster) {
+      const uptimeMs = Date.now() - BOT_START_TIME;
+      const uptimeSeconds = Math.floor(uptimeMs / 1000);
+      const hours = Math.floor(uptimeSeconds / 3600);
+      const minutes = Math.floor((uptimeSeconds % 3600) / 60);
+      const seconds = uptimeSeconds % 60;
+
+      let uptimeStr = "";
+      if (hours > 0) uptimeStr += `${hours}h `;
+      if (minutes > 0 || hours > 0) uptimeStr += `${minutes}m `;
+      uptimeStr += `${seconds}s`;
+
+      sendTwitchMessage(`pong, uptime: ${uptimeStr.trim()}`);
+    }
+    return;
+  }
+
   const normalized = normalizeMessage(message);
 
   if (shouldBlockMessage({
