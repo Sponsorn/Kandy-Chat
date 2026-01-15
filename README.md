@@ -25,7 +25,8 @@ copy .env.example .env
 - `MOD_ROLE_ID`: mod role(s) allowed to use `/klb restart` (comma-separated supported)
 - `TWITCH_USERNAME`: Twitch bot username
 - `TWITCH_OAUTH`: IRC oauth token (format: `oauth:xxxx`), or use refresh flow below
-- `TWITCH_CHANNEL`: channel to read (no #)
+- `TWITCH_CHANNEL`: channel(s) to join (no #, comma-separated for multiple channels)
+- `TWITCH_CHANNEL_MAPPING`: (optional) map Twitch channels to specific Discord channels (format: `twitchchannel:discordchannelid,...`)
 
 Optional (auto refresh tokens):
 - `TWITCH_CLIENT_ID`
@@ -37,6 +38,32 @@ Optional (auto refresh tokens):
 ```bash
 npm start
 ```
+
+## Multi-Channel Support
+
+The bot can join multiple Twitch channels simultaneously. Configure this in `.env`:
+
+### Basic Multi-Channel Setup
+```env
+TWITCH_CHANNEL=channel1,channel2,channel3
+```
+
+All messages from all channels will be relayed to all Discord channels. Messages will be prefixed with `[channelname]` to show their origin.
+
+### Channel Mapping (Advanced)
+You can map specific Twitch channels to specific Discord channels:
+
+```env
+TWITCH_CHANNEL=channel1,channel2
+DISCORD_CHANNEL_ID=123456789,987654321
+TWITCH_CHANNEL_MAPPING=channel1:123456789,channel2:987654321
+```
+
+With this configuration:
+- Messages from `channel1` → Discord channel `123456789`
+- Messages from `channel2` → Discord channel `987654321`
+
+If no mapping is found for a channel, messages will be relayed to all Discord channels.
 
 ## Filters
 
@@ -52,11 +79,20 @@ Set in `.env`:
 The bot automatically responds to Twitch events:
 
 ### Subscription Thank You Messages
-When someone subscribes, resubs, or gifts a sub, the bot automatically sends a thank you message in Twitch chat:
+When someone subscribes, resubs, or gifts a sub, the bot can automatically send a thank you message in Twitch chat (enabled by default):
 - New Sub: "hype Welcome to Kandyland, [Username]! kandyKiss"
 - Resub: "hype Welcome back to Kandyland, [Username]! kandyKiss"
 - Gift Sub (single): "Thank you for gifting to [recipient], [Gifter]! kandyHype"
 - Gift Sub (multiple): "Thank you for gifting to [count] users, [Gifter]! kandyHype"
+
+Configure in `.env`:
+```env
+SUB_THANK_YOU_ENABLED=true
+RESUB_THANK_YOU_ENABLED=true
+GIFT_SUB_THANK_YOU_ENABLED=true
+```
+
+Set any to `false` to disable that specific thank you message type.
 
 ## Reaction deletes (Discord -> Twitch)
 

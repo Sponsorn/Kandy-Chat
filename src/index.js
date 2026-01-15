@@ -41,6 +41,7 @@ const {
   TWITCH_CLIENT_ID,
   TWITCH_CLIENT_SECRET,
   TWITCH_REFRESH_TOKEN,
+  TWITCH_CHANNEL_MAPPING,
   FREEZE_ALERT_ROLE_ID,
   DISCORD_CLIENT_ID,
   DISCORD_GUILD_ID,
@@ -49,7 +50,10 @@ const {
   REACTION_TIMEOUT_EMOJI,
   REACTION_BAN_EMOJI,
   REACTION_WARN_EMOJI,
-  REACTION_TIMEOUT_SECONDS
+  REACTION_TIMEOUT_SECONDS,
+  SUB_THANK_YOU_ENABLED,
+  RESUB_THANK_YOU_ENABLED,
+  GIFT_SUB_THANK_YOU_ENABLED
 } = process.env;
 
 if (!DISCORD_TOKEN || !DISCORD_CHANNEL_ID) {
@@ -68,6 +72,21 @@ const filters = buildFilters(process.env);
 const baseBlockedWords = [...filters.blockedWords];
 const blacklistRegexMap = new Map();
 const BOT_START_TIME = Date.now();
+
+// Parse Twitch channels (comma-separated)
+const TWITCH_CHANNELS = TWITCH_CHANNEL.split(",").map((ch) => ch.trim().toLowerCase()).filter(Boolean);
+
+// Parse channel mapping (format: twitchChannel1:discordChannelId1,twitchChannel2:discordChannelId2)
+// If no mapping provided, all Twitch channels relay to all Discord channels
+const channelMapping = new Map();
+if (TWITCH_CHANNEL_MAPPING) {
+  TWITCH_CHANNEL_MAPPING.split(",").forEach((mapping) => {
+    const [twitchCh, discordCh] = mapping.split(":").map((s) => s.trim());
+    if (twitchCh && discordCh) {
+      channelMapping.set(twitchCh.toLowerCase(), discordCh);
+    }
+  });
+}
 
 const discordClient = new Client({
   intents: [
@@ -438,7 +457,7 @@ function createTwitchClient(oauthToken) {
       username: TWITCH_USERNAME,
       password: oauthToken
     },
-    channels: [TWITCH_CHANNEL]
+    channels: TWITCH_CHANNELS
   });
 }
 
@@ -1044,13 +1063,17 @@ function getTierName(tier) {
   }
 }
 
-async function sendTwitchMessage(message) {
+async function sendTwitchMessage(message, targetChannel = null) {
   if (!twitchClient) {
     console.warn("Cannot send Twitch message: client not connected");
     return;
   }
+
+  // Use provided channel or default to first channel (or single channel for backwards compat)
+  const channel = targetChannel || TWITCH_CHANNELS[0] || TWITCH_CHANNEL;
+
   try {
-    await twitchClient.say(TWITCH_CHANNEL, message);
+    await twitchClient.say(channel, message);
   } catch (error) {
     console.error("Failed to send Twitch message:", error);
   }
@@ -1060,31 +1083,43 @@ async function sendTwitchMessage(message) {
 function handleTwitchSubscription(channel, username, method, message, userstate) {
   const tier = getTierName(method.plan);
 
-  const thankYouMessage = `hype Welcome to Kandyland, ${username}! kandyKiss`;
-  sendTwitchMessage(thankYouMessage);
+  // Check if sub thank you messages are enabled (default: true)
+  const enabled = SUB_THANK_YOU_ENABLED !== "false";
+  if (enabled) {
+    const thankYouMessage = `hype Welcome to Kandyland, ${username}! kandyKiss`;
+    sendTwitchMessage(thankYouMessage, channel);
+  }
 
-  console.log(`New subscription: ${username} (${tier})`);
+  console.log(`[${channel}] New subscription: ${username} (${tier})`);
 }
 
 function handleTwitchResub(channel, username, months, message, userstate, methods) {
   const tier = getTierName(methods.plan);
 
-  const thankYouMessage = `hype Welcome back to Kandyland, ${username}! kandyKiss`;
-  sendTwitchMessage(thankYouMessage);
+  // Check if resub thank you messages are enabled (default: true)
+  const enabled = RESUB_THANK_YOU_ENABLED !== "false";
+  if (enabled) {
+    const thankYouMessage = `hype Welcome back to Kandyland, ${username}! kandyKiss`;
+    sendTwitchMessage(thankYouMessage, channel);
+  }
 
-  console.log(`Resub: ${username} (${tier}, ${months} months)`);
+  console.log(`[${channel}] Resub: ${username} (${tier}, ${months} months)`);
 }
 
 function handleTwitchSubGift(channel, username, streakMonths, recipient, methods, userstate) {
   const tier = getTierName(methods.plan);
   const giftCount = userstate["msg-param-sender-count"] || 1;
 
-  // Determine if single or multiple gifts
-  const recipientText = giftCount === 1 ? recipient : `${giftCount} users`;
-  const thankYouMessage = `Thank you for gifting to ${recipientText}, ${username}! kandyHype`;
-  sendTwitchMessage(thankYouMessage);
+  // Check if gift sub thank you messages are enabled (default: true)
+  const enabled = GIFT_SUB_THANK_YOU_ENABLED !== "false";
+  if (enabled) {
+    // Determine if single or multiple gifts
+    const recipientText = giftCount === 1 ? recipient : `${giftCount} users`;
+    const thankYouMessage = `Thank you for gifting to ${recipientText}, ${username}! kandyHype`;
+    sendTwitchMessage(thankYouMessage, channel);
+  }
 
-  console.log(`Gift sub: ${username} -> ${recipient} (${tier}, ${giftCount} total gifts)`);
+  console.log(`[${channel}] Gift sub: ${username} -> ${recipient} (${tier}, ${giftCount} total gifts)`);
 }
 
 function attachTwitchHandlers(client) {
@@ -1158,7 +1193,7 @@ function resolveReactionAction(reaction, actionConfig, requireMatch) {
   return requireMatch ? null : "delete";
 }
 
-async function relayToDiscord(username, message) {
+async function relayToDiscord(username, message, twitchChannel = null) {
   if (!discordChannels.length) {
     const channelIds = DISCORD_CHANNEL_ID.split(",").map((id) => id.trim()).filter(Boolean);
     discordChannels = await Promise.all(
@@ -1167,12 +1202,29 @@ async function relayToDiscord(username, message) {
     discordChannels = discordChannels.filter(Boolean);
   }
 
+  // Determine which Discord channels to relay to
+  let targetChannels = discordChannels;
+  if (twitchChannel && channelMapping.size > 0) {
+    const normalizedTwitchCh = twitchChannel.toLowerCase().replace(/^#/, "");
+    const mappedDiscordId = channelMapping.get(normalizedTwitchCh);
+
+    if (mappedDiscordId) {
+      // Only relay to the mapped channel
+      targetChannels = discordChannels.filter((ch) => ch.id === mappedDiscordId);
+    }
+    // If no mapping found, fall back to all channels
+  }
+
   const suspicious = isSuspiciousMessage(message);
   const suffix = suspicious ? " ⚠️ Suspicious message" : "";
+
+  // Add channel prefix if multi-channel mode
+  const channelPrefix = TWITCH_CHANNELS.length > 1 && twitchChannel ? `[${twitchChannel.replace(/^#/, "")}] ` : "";
+
   let sent = null;
-  for (const channel of discordChannels) {
+  for (const channel of targetChannels) {
     if (!channel?.isTextBased()) continue;
-    const result = await channel.send(`${formatRelayMessage(username, message)}${suffix}`);
+    const result = await channel.send(`${channelPrefix}${formatRelayMessage(username, message)}${suffix}`);
     if (suspicious) {
       addModerationReactions(result).catch((error) => {
         console.warn("Failed to add moderation reactions", error);
@@ -1180,7 +1232,7 @@ async function relayToDiscord(username, message) {
     }
     if (!sent) sent = result;
   }
-  console.log(`Relayed: ${username}: ${message}`);
+  console.log(`Relayed [${twitchChannel || "unknown"}]: ${username}: ${message}`);
   return sent;
 }
 
@@ -1206,7 +1258,7 @@ function handleTwitchMessage(channel, tags, message, self) {
       if (minutes > 0 || hours > 0) uptimeStr += `${minutes}m `;
       uptimeStr += `${seconds}s`;
 
-      sendTwitchMessage(`pong, uptime: ${uptimeStr.trim()}`);
+      sendTwitchMessage(`pong, uptime: ${uptimeStr.trim()}`, channel);
     }
     return;
   }
@@ -1223,7 +1275,7 @@ function handleTwitchMessage(channel, tags, message, self) {
     return;
   }
 
-  relayToDiscord(username, normalized)
+  relayToDiscord(username, normalized, channel)
     .then((sent) => {
       const msgId = tags?.id;
       if (!msgId || !sent) return;
