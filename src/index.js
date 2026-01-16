@@ -152,8 +152,6 @@ setInterval(() => {
   }
 }, 15 * 60 * 1000);
 
-
-
 function createTwitchClient(oauthToken) {
   return new tmi.Client({
     options: { debug: false },
@@ -417,6 +415,11 @@ function attachTwitchHandlers(client) {
   client.on("subgift", handleTwitchSubGift);
   client.on("connected", (address, port) => {
     console.log(`Twitch connected to ${address}:${port}`);
+  });
+  client.on("join", (channel, _username, self) => {
+    if (self) {
+      console.log(`Successfully joined Twitch channel: ${channel}`);
+    }
   });
   client.on("disconnected", (reason) => {
     console.warn(`Twitch disconnected: ${reason}`);
