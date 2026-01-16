@@ -31,6 +31,8 @@ import {
   loadBlacklist,
   removeBlacklistWord
 } from "./blacklistStore.js";
+import { fetchWithTimeout } from "./utils/fetch.js";
+import { checkRateLimit } from "./utils/rateLimit.js";
 
 const {
   DISCORD_TOKEN,
@@ -74,6 +76,10 @@ const baseBlockedWords = [...filters.blockedWords];
 const blacklistRegexMap = new Map();
 const BOT_START_TIME = Date.now();
 
+// Token management - avoid mutating process.env
+let currentOAuthToken = TWITCH_OAUTH;
+let currentAccessToken = null;
+
 // Parse Twitch channels (comma-separated)
 const TWITCH_CHANNELS = TWITCH_CHANNEL.split(",").map((ch) => ch.trim().toLowerCase()).filter(Boolean);
 
@@ -108,7 +114,31 @@ let currentRefreshToken = TWITCH_REFRESH_TOKEN;
 let freezeAuthManaged = false;
 const relayMessageMap = new Map();
 const relayDiscordMap = new Map();
-const RELAY_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const RELAY_CACHE_TTL_MS = 1 * 60 * 60 * 1000; // 1 hour (reduced from 6 for memory efficiency)
+
+// Clean up expired relay mappings every 15 minutes
+setInterval(() => {
+  const now = Date.now();
+  let cleaned = 0;
+
+  for (const [key, value] of relayMessageMap.entries()) {
+    if (now - (value.timestamp || 0) > RELAY_CACHE_TTL_MS) {
+      relayMessageMap.delete(key);
+      cleaned++;
+    }
+  }
+
+  for (const [key, value] of relayDiscordMap.entries()) {
+    if (now - (value.timestamp || 0) > RELAY_CACHE_TTL_MS) {
+      relayDiscordMap.delete(key);
+      cleaned++;
+    }
+  }
+
+  if (cleaned > 0) {
+    console.log(`Cleaned ${cleaned} expired relay mappings`);
+  }
+}, 15 * 60 * 1000);
 
 async function deleteTwitchMessageViaAPI(channelName, messageId) {
   if (!TWITCH_CLIENT_ID || !currentRefreshToken) {
@@ -117,14 +147,14 @@ async function deleteTwitchMessageViaAPI(channelName, messageId) {
 
   // Get fresh access token
   const tokenInfo = await refreshAndApplyTwitchToken();
-  const accessToken = tokenInfo?.oauthToken?.replace("oauth:", "") ?? process.env.TWITCH_OAUTH?.replace("oauth:", "");
+  const accessToken = tokenInfo?.oauthToken?.replace("oauth:", "") ?? currentOAuthToken?.replace("oauth:", "");
 
   if (!accessToken) {
     throw new Error("No Twitch access token available");
   }
 
   // Get broadcaster user ID
-  const broadcasterResponse = await fetch(
+  const broadcasterResponse = await fetchWithTimeout(
     `https://api.twitch.tv/helix/users?login=${channelName.replace("#", "")}`,
     {
       headers: {
@@ -146,7 +176,7 @@ async function deleteTwitchMessageViaAPI(channelName, messageId) {
   }
 
   // Get moderator user ID (the bot itself)
-  const modResponse = await fetch(
+  const modResponse = await fetchWithTimeout(
     `https://api.twitch.tv/helix/users?login=${TWITCH_USERNAME}`,
     {
       headers: {
@@ -168,7 +198,7 @@ async function deleteTwitchMessageViaAPI(channelName, messageId) {
   }
 
   // Delete the message using Helix API
-  const deleteResponse = await fetch(
+  const deleteResponse = await fetchWithTimeout(
     `https://api.twitch.tv/helix/moderation/chat?broadcaster_id=${broadcasterId}&moderator_id=${moderatorId}&message_id=${messageId}`,
     {
       method: "DELETE",
@@ -192,14 +222,14 @@ async function fetchBlockedTermsFromChannel(channelLogin) {
 
   // Get fresh access token
   const tokenInfo = await refreshAndApplyTwitchToken();
-  const accessToken = tokenInfo?.oauthToken?.replace("oauth:", "") ?? process.env.TWITCH_OAUTH?.replace("oauth:", "");
+  const accessToken = tokenInfo?.oauthToken?.replace("oauth:", "") ?? currentOAuthToken?.replace("oauth:", "");
 
   if (!accessToken) {
     throw new Error("No Twitch access token available");
   }
 
   // Get broadcaster user ID
-  const broadcasterResponse = await fetch(
+  const broadcasterResponse = await fetchWithTimeout(
     `https://api.twitch.tv/helix/users?login=${channelLogin}`,
     {
       headers: {
@@ -221,7 +251,7 @@ async function fetchBlockedTermsFromChannel(channelLogin) {
   }
 
   // Get moderator user ID (the bot itself)
-  const modResponse = await fetch(
+  const modResponse = await fetchWithTimeout(
     `https://api.twitch.tv/helix/users?login=${TWITCH_USERNAME}`,
     {
       headers: {
@@ -255,7 +285,7 @@ async function fetchBlockedTermsFromChannel(channelLogin) {
       url.searchParams.append("after", cursor);
     }
 
-    const response = await fetch(url.toString(), {
+    const response = await fetchWithTimeout(url.toString(), {
       headers: {
         "Authorization": `Bearer ${accessToken}`,
         "Client-Id": TWITCH_CLIENT_ID
@@ -282,14 +312,14 @@ async function addBlockedTermToChannel(channelLogin, term) {
   }
 
   const tokenInfo = await refreshAndApplyTwitchToken();
-  const accessToken = tokenInfo?.oauthToken?.replace("oauth:", "") ?? process.env.TWITCH_OAUTH?.replace("oauth:", "");
+  const accessToken = tokenInfo?.oauthToken?.replace("oauth:", "") ?? currentOAuthToken?.replace("oauth:", "");
 
   if (!accessToken) {
     throw new Error("Failed to get access token");
   }
 
   // Get broadcaster ID
-  const userResponse = await fetch(
+  const userResponse = await fetchWithTimeout(
     `https://api.twitch.tv/helix/users?login=${encodeURIComponent(channelLogin)}`,
     {
       headers: {
@@ -311,7 +341,7 @@ async function addBlockedTermToChannel(channelLogin, term) {
   const broadcasterId = userData.data[0].id;
 
   // Get moderator ID (the authenticated user making the request)
-  const moderatorResponse = await fetch(
+  const moderatorResponse = await fetchWithTimeout(
     "https://api.twitch.tv/helix/users",
     {
       headers: {
@@ -333,7 +363,7 @@ async function addBlockedTermToChannel(channelLogin, term) {
   const moderatorId = moderatorData.data[0].id;
 
   // Add blocked term
-  const addResponse = await fetch(
+  const addResponse = await fetchWithTimeout(
     `https://api.twitch.tv/helix/moderation/blocked_terms?broadcaster_id=${broadcasterId}&moderator_id=${moderatorId}`,
     {
       method: "POST",
@@ -360,14 +390,14 @@ async function warnTwitchUser(username, reason) {
   }
 
   const tokenInfo = await refreshAndApplyTwitchToken();
-  const accessToken = tokenInfo?.oauthToken?.replace("oauth:", "") ?? process.env.TWITCH_OAUTH?.replace("oauth:", "");
+  const accessToken = tokenInfo?.oauthToken?.replace("oauth:", "") ?? currentOAuthToken?.replace("oauth:", "");
 
   if (!accessToken) {
     throw new Error("No Twitch access token available");
   }
 
   // Get broadcaster user ID
-  const broadcasterResponse = await fetch(
+  const broadcasterResponse = await fetchWithTimeout(
     `https://api.twitch.tv/helix/users?login=${TWITCH_CHANNEL.replace("#", "")}`,
     {
       headers: {
@@ -389,7 +419,7 @@ async function warnTwitchUser(username, reason) {
   }
 
   // Get user ID to warn
-  const userResponse = await fetch(
+  const userResponse = await fetchWithTimeout(
     `https://api.twitch.tv/helix/users?login=${username}`,
     {
       headers: {
@@ -411,7 +441,7 @@ async function warnTwitchUser(username, reason) {
   }
 
   // Get moderator user ID (the bot itself)
-  const modResponse = await fetch(
+  const modResponse = await fetchWithTimeout(
     `https://api.twitch.tv/helix/users?login=${TWITCH_USERNAME}`,
     {
       headers: {
@@ -433,7 +463,7 @@ async function warnTwitchUser(username, reason) {
   }
 
   // Send warning
-  const warnResponse = await fetch(
+  const warnResponse = await fetchWithTimeout(
     `https://api.twitch.tv/helix/moderation/warnings?broadcaster_id=${broadcasterId}&moderator_id=${moderatorId}`,
     {
       method: "POST",
@@ -493,6 +523,15 @@ discordClient.once("clientReady", async () => {
 discordClient.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   if (interaction.commandName !== "klb") return;
+
+  // Rate limiting - prevent command spam
+  if (!checkRateLimit(interaction.user.id)) {
+    await interaction.reply({
+      content: "You're doing that too fast. Please wait a moment.",
+      flags: MessageFlags.Ephemeral
+    });
+    return;
+  }
 
   const isAllowed = hasPrivilegedRole(interaction.member);
   if (!isAllowed) {
@@ -1112,20 +1151,53 @@ function handleTwitchResub(channel, username, months, message, userstate, method
   console.log(`[${channel}] Resub: ${username} (${tier}, ${months} months)`);
 }
 
-function handleTwitchSubGift(channel, username, streakMonths, recipient, methods, userstate) {
+// Gift sub batching to combine multiple gift events into a single message
+const giftSubBatches = new Map();
+
+function handleTwitchSubGift(channel, username, streakMonths, recipient, methods) {
   const tier = getTierName(methods.plan);
-  const giftCount = userstate["msg-param-sender-count"] || 1;
+
+  console.log(`[${channel}] Gift sub: ${username} -> ${recipient} (${tier})`);
 
   // Check if gift sub thank you messages are enabled (default: true)
   const enabled = GIFT_SUB_THANK_YOU_ENABLED !== "false";
-  if (enabled) {
-    // Determine if single or multiple gifts
-    const recipientText = giftCount === 1 ? recipient : `${giftCount} users`;
-    const thankYouMessage = `Thank you for gifting to ${recipientText}, ${username}! kandyHype`;
-    sendTwitchMessage(thankYouMessage, channel);
+  if (!enabled) return;
+
+  // Create a unique key for this gift batch
+  const batchKey = `${channel}:${username}`;
+
+  // Get or create batch entry
+  let batch = giftSubBatches.get(batchKey);
+  if (!batch) {
+    batch = {
+      channel,
+      username,
+      recipients: [],
+      timer: null
+    };
+    giftSubBatches.set(batchKey, batch);
   }
 
-  console.log(`[${channel}] Gift sub: ${username} -> ${recipient} (${tier}, ${giftCount} total gifts)`);
+  // Add recipient to batch
+  batch.recipients.push(recipient);
+
+  // Clear existing timer if any
+  if (batch.timer) {
+    clearTimeout(batch.timer);
+  }
+
+  // Set new timer to send combined message after 1.5 seconds
+  batch.timer = setTimeout(() => {
+    const recipientCount = batch.recipients.length;
+    const recipientText = recipientCount === 1 ? batch.recipients[0] : `${recipientCount} users`;
+    const thankYouMessage = `Thank you for gifting to ${recipientText}, ${batch.username}! kandyHype`;
+
+    sendTwitchMessage(thankYouMessage, batch.channel);
+    console.log(`[${batch.channel}] Sent combined gift sub thank you for ${recipientCount} gift(s) from ${batch.username}`);
+
+    // Clean up batch
+    giftSubBatches.delete(batchKey);
+  }, 1500);
 }
 
 function attachTwitchHandlers(client) {
@@ -1315,12 +1387,14 @@ function handleTwitchMessage(channel, tags, message, self) {
       if (!msgId || !sent) return;
       relayMessageMap.set(msgId, {
         discordMessageId: sent.id,
-        discordChannelId: sent.channelId
+        discordChannelId: sent.channelId,
+        timestamp: Date.now()
       });
       relayDiscordMap.set(sent.id, {
         twitchMessageId: msgId,
         twitchChannel: channel,
-        twitchUsername: tags?.username ?? username
+        twitchUsername: tags?.username ?? username,
+        timestamp: Date.now()
       });
       setTimeout(() => {
         relayMessageMap.delete(msgId);
@@ -1359,7 +1433,7 @@ async function start() {
   await discordClient.login(DISCORD_TOKEN);
   await hydrateBlacklist();
   const tokenInfo = await refreshAndApplyTwitchToken();
-  const oauthToken = tokenInfo?.oauthToken ?? TWITCH_OAUTH;
+  const oauthToken = tokenInfo?.oauthToken ?? currentOAuthToken;
   if (!oauthToken) {
     throw new Error("Missing TWITCH_OAUTH or refresh credentials");
   }
@@ -1390,9 +1464,11 @@ async function start() {
     }
   });
 
-  // Pass the OAuth token (without oauth: prefix) to freeze monitor if FREEZE_OAUTH_BEARER isn't set
+  // Pass the access token to freeze monitor, using module variable instead of env
   const freezeEnv = { ...process.env };
-  if (!freezeEnv.FREEZE_OAUTH_BEARER && oauthToken) {
+  if (!freezeEnv.FREEZE_OAUTH_BEARER && currentAccessToken) {
+    freezeEnv.FREEZE_OAUTH_BEARER = currentAccessToken;
+  } else if (!freezeEnv.FREEZE_OAUTH_BEARER && oauthToken) {
     freezeEnv.FREEZE_OAUTH_BEARER = oauthToken.replace(/^oauth:/, "");
   }
 
@@ -1527,9 +1603,11 @@ async function refreshAndApplyTwitchToken() {
 
   const oauthToken = `oauth:${refreshed.accessToken}`;
   currentRefreshToken = refreshed.refreshToken;
-  process.env.TWITCH_OAUTH = oauthToken;
-  if (!process.env.FREEZE_OAUTH_BEARER || freezeAuthManaged) {
-    process.env.FREEZE_OAUTH_BEARER = refreshed.accessToken;
+
+  // Store tokens in module variables instead of mutating process.env
+  currentOAuthToken = oauthToken;
+  currentAccessToken = refreshed.accessToken;
+  if (!currentAccessToken || freezeAuthManaged) {
     freezeAuthManaged = true;
   }
 
