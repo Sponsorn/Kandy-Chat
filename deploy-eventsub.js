@@ -1,18 +1,16 @@
 import "dotenv/config";
-import { refreshTwitchToken } from "./src/twitchAuth.js";
 
 const {
   TWITCH_CLIENT_ID,
   TWITCH_CLIENT_SECRET,
-  TWITCH_REFRESH_TOKEN,
   EVENTSUB_PUBLIC_URL,
   EVENTSUB_CALLBACK_PATH,
   EVENTSUB_SECRET,
   EVENTSUB_BROADCASTER
 } = process.env;
 
-if (!TWITCH_CLIENT_ID || !TWITCH_CLIENT_SECRET || !TWITCH_REFRESH_TOKEN) {
-  throw new Error("Missing TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, or TWITCH_REFRESH_TOKEN");
+if (!TWITCH_CLIENT_ID || !TWITCH_CLIENT_SECRET) {
+  throw new Error("Missing TWITCH_CLIENT_ID or TWITCH_CLIENT_SECRET");
 }
 
 if (!EVENTSUB_PUBLIC_URL || !EVENTSUB_SECRET) {
@@ -67,14 +65,28 @@ async function createSubscription(accessToken, type, condition) {
   }
 }
 
-async function main() {
-  const refreshed = await refreshTwitchToken({
-    clientId: TWITCH_CLIENT_ID,
-    clientSecret: TWITCH_CLIENT_SECRET,
-    refreshToken: TWITCH_REFRESH_TOKEN
+async function getAppAccessToken() {
+  const params = new URLSearchParams({
+    client_id: TWITCH_CLIENT_ID,
+    client_secret: TWITCH_CLIENT_SECRET,
+    grant_type: "client_credentials"
   });
 
-  const accessToken = refreshed.accessToken;
+  const response = await fetch("https://id.twitch.tv/oauth2/token", {
+    method: "POST",
+    body: params
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to get app access token: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.access_token;
+}
+
+async function main() {
+  const accessToken = await getAppAccessToken();
 
   // Support comma-separated list of broadcasters
   const broadcasters = EVENTSUB_BROADCASTER.split(",").map(b => b.trim()).filter(Boolean);
