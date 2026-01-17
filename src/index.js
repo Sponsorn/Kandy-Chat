@@ -659,6 +659,10 @@ async function start() {
 
   console.log("Relay online: Twitch chat -> Discord channel");
 
+  // Track last stream status messages per channel for editing (within 30 min window)
+  const lastStreamStatusMessages = new Map();
+  const STREAM_STATUS_EDIT_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
+
   await startEventSubServer(process.env, {
     logger: console,
     onEvent: (payload) => {
@@ -667,11 +671,11 @@ async function start() {
       console.log(`EventSub notification: ${type} for ${broadcasterName}`);
 
       if (type === "stream.online") {
-        relaySystemMessage(`${broadcasterName} went live on Twitch`).catch((error) => {
+        relayStreamStatusMessage(broadcasterName, `${broadcasterName} went live on Twitch`, lastStreamStatusMessages, STREAM_STATUS_EDIT_WINDOW_MS).catch((error) => {
           console.error("Failed to send EventSub online message", error);
         });
       } else if (type === "stream.offline") {
-        relaySystemMessage(`${broadcasterName} went offline on Twitch`).catch((error) => {
+        relayStreamStatusMessage(broadcasterName, `${broadcasterName} went offline on Twitch`, lastStreamStatusMessages, STREAM_STATUS_EDIT_WINDOW_MS).catch((error) => {
           console.error("Failed to send EventSub offline message", error);
         });
       }
@@ -731,6 +735,47 @@ async function relaySystemMessage(message) {
       .filter((channel) => channel?.isTextBased())
       .map((channel) => channel.send(payload))
   );
+}
+
+async function relayStreamStatusMessage(broadcasterName, message, statusCache, editWindowMs) {
+  if (!discordChannels.length) {
+    const channelIds = DISCORD_CHANNEL_ID.split(",").map((id) => id.trim()).filter(Boolean);
+    discordChannels = await Promise.all(
+      channelIds.map((id) => discordClient.channels.fetch(id).catch(() => null))
+    );
+    discordChannels = discordChannels.filter(Boolean);
+  }
+
+  const payload = `[SYSTEM] ${message}`;
+  const now = Date.now();
+
+  // Check if we have a recent message to edit
+  const cachedEntry = statusCache.get(broadcasterName);
+  if (cachedEntry && (now - cachedEntry.timestamp) <= editWindowMs) {
+    // Edit the existing messages
+    await Promise.all(
+      cachedEntry.messages.map(async (msg) => {
+        try {
+          await msg.edit(payload);
+        } catch (error) {
+          console.error("Failed to edit stream status message", error);
+        }
+      })
+    );
+  } else {
+    // Send new messages
+    const sentMessages = await Promise.all(
+      discordChannels
+        .filter((channel) => channel?.isTextBased())
+        .map((channel) => channel.send(payload).catch(() => null))
+    );
+
+    // Cache the new messages
+    statusCache.set(broadcasterName, {
+      messages: sentMessages.filter(Boolean),
+      timestamp: now
+    });
+  }
 }
 
 async function hydrateBlacklist() {
