@@ -103,6 +103,7 @@ async function main() {
 
     await createSubscription(accessToken, "stream.online", { broadcaster_user_id: userId });
     await createSubscription(accessToken, "stream.offline", { broadcaster_user_id: userId });
+    await createSubscription(accessToken, "channel.raid", { from_broadcaster_user_id: userId });
 
     console.log(`✓ EventSub subscriptions created for ${broadcaster} (ID: ${userId})`);
   }
