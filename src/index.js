@@ -663,13 +663,15 @@ async function start() {
     logger: console,
     onEvent: (payload) => {
       const type = payload?.subscription?.type || "unknown";
-      console.log(`EventSub notification: ${type}`);
+      const broadcasterName = payload?.event?.broadcaster_user_name || payload?.event?.broadcaster_user_login || "unknown";
+      console.log(`EventSub notification: ${type} for ${broadcasterName}`);
+
       if (type === "stream.online") {
-        relaySystemMessage("EventSub: stream online").catch((error) => {
+        relaySystemMessage(`${broadcasterName} went live on Twitch`).catch((error) => {
           console.error("Failed to send EventSub online message", error);
         });
       } else if (type === "stream.offline") {
-        relaySystemMessage("EventSub: stream offline").catch((error) => {
+        relaySystemMessage(`${broadcasterName} went offline on Twitch`).catch((error) => {
           console.error("Failed to send EventSub offline message", error);
         });
       }
