@@ -75,16 +75,27 @@ async function main() {
   });
 
   const accessToken = refreshed.accessToken;
-  const users = await helixRequest(accessToken, `users?login=${encodeURIComponent(EVENTSUB_BROADCASTER)}`);
-  const userId = users?.data?.[0]?.id;
-  if (!userId) {
-    throw new Error("Unable to resolve broadcaster id");
+
+  // Support comma-separated list of broadcasters
+  const broadcasters = EVENTSUB_BROADCASTER.split(",").map(b => b.trim()).filter(Boolean);
+
+  for (const broadcaster of broadcasters) {
+    console.log(`Setting up EventSub for ${broadcaster}...`);
+
+    const users = await helixRequest(accessToken, `users?login=${encodeURIComponent(broadcaster)}`);
+    const userId = users?.data?.[0]?.id;
+    if (!userId) {
+      console.error(`Unable to resolve broadcaster id for ${broadcaster}, skipping`);
+      continue;
+    }
+
+    await createSubscription(accessToken, "stream.online", { broadcaster_user_id: userId });
+    await createSubscription(accessToken, "stream.offline", { broadcaster_user_id: userId });
+
+    console.log(`✓ EventSub subscriptions created for ${broadcaster} (ID: ${userId})`);
   }
 
-  await createSubscription(accessToken, "stream.online", { broadcaster_user_id: userId });
-  await createSubscription(accessToken, "stream.offline", { broadcaster_user_id: userId });
-
-  console.log("EventSub subscriptions created");
+  console.log("\nAll EventSub subscriptions created successfully");
 }
 
 main().catch((error) => {
