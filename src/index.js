@@ -36,6 +36,17 @@ import { checkRateLimit } from "./utils/rateLimit.js";
 import { TwitchAPIClient } from "./api/TwitchAPIClient.js";
 import { handleSlashCommand } from "./commands/commandRegistry.js";
 
+// Add timestamps to all console output
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
+const originalConsoleWarn = console.warn;
+
+const getTimestamp = () => new Date().toISOString();
+
+console.log = (...args) => originalConsoleLog(`[${getTimestamp()}]`, ...args);
+console.error = (...args) => originalConsoleError(`[${getTimestamp()}]`, ...args);
+console.warn = (...args) => originalConsoleWarn(`[${getTimestamp()}]`, ...args);
+
 const {
   DISCORD_TOKEN,
   DISCORD_CHANNEL_ID,
@@ -659,19 +670,6 @@ async function start() {
 
   console.log("Relay online: Twitch chat -> Discord channel");
 
-  // Track last stream status messages per channel for editing (within 30 min window)
-  const lastStreamStatusMessages = new Map();
-  const STREAM_STATUS_EDIT_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
-
-  // Track recent raids between monitored channels to suppress offline/online spam
-  const recentRaids = new Map(); // broadcaster -> { timestamp, raidedTo }
-  const RAID_SUPPRESS_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
-
-  // Get list of monitored broadcasters for raid detection
-  const monitoredBroadcasters = new Set(
-    (process.env.EVENTSUB_BROADCASTER || "").split(",").map(b => b.trim().toLowerCase()).filter(Boolean)
-  );
-
   await startEventSubServer(process.env, {
     logger: console,
     onEvent: (payload) => {
@@ -680,51 +678,14 @@ async function start() {
       console.log(`EventSub notification: ${type} for ${broadcasterName}`);
 
       if (type === "stream.online") {
-        // Check if this online event is due to a recent raid from another monitored channel
-        const now = Date.now();
-        let shouldSuppress = false;
-
-        for (const [raidedFrom, raidInfo] of recentRaids.entries()) {
-          if (raidInfo.raidedTo === broadcasterName.toLowerCase() &&
-              (now - raidInfo.timestamp) <= RAID_SUPPRESS_WINDOW_MS) {
-            console.log(`Suppressing online message for ${broadcasterName} (recent raid from ${raidedFrom})`);
-            shouldSuppress = true;
-            break;
-          }
-        }
-
-        if (!shouldSuppress) {
-          relayStreamStatusMessage(broadcasterName, `${broadcasterName} went live on Twitch`, lastStreamStatusMessages, STREAM_STATUS_EDIT_WINDOW_MS).catch((error) => {
-            console.error("Failed to send EventSub online message", error);
-          });
-        }
+        console.log(`${broadcasterName} went live on Twitch`);
       } else if (type === "stream.offline") {
-        // Check if there's a recent raid from this channel
-        const raidInfo = recentRaids.get(broadcasterName.toLowerCase());
-        const now = Date.now();
-
-        if (raidInfo && (now - raidInfo.timestamp) <= RAID_SUPPRESS_WINDOW_MS) {
-          console.log(`Suppressing offline message for ${broadcasterName} (raided to ${raidInfo.raidedTo})`);
-        } else {
-          relayStreamStatusMessage(broadcasterName, `${broadcasterName} went offline on Twitch`, lastStreamStatusMessages, STREAM_STATUS_EDIT_WINDOW_MS).catch((error) => {
-            console.error("Failed to send EventSub offline message", error);
-          });
-        }
+        console.log(`${broadcasterName} went offline on Twitch`);
       } else if (type === "channel.raid") {
         const fromBroadcaster = payload?.event?.from_broadcaster_user_name || payload?.event?.from_broadcaster_user_login;
         const toBroadcaster = payload?.event?.to_broadcaster_user_name || payload?.event?.to_broadcaster_user_login;
         const viewers = payload?.event?.viewers || 0;
         console.log(`Raid: ${fromBroadcaster} raided ${toBroadcaster} with ${viewers} viewers`);
-
-        // Track raid if it's between monitored channels
-        if (monitoredBroadcasters.has(fromBroadcaster?.toLowerCase()) &&
-            monitoredBroadcasters.has(toBroadcaster?.toLowerCase())) {
-          recentRaids.set(fromBroadcaster.toLowerCase(), {
-            timestamp: Date.now(),
-            raidedTo: toBroadcaster.toLowerCase()
-          });
-          console.log(`Tracking raid between monitored channels: ${fromBroadcaster} -> ${toBroadcaster}`);
-        }
       }
     }
   });
@@ -782,47 +743,6 @@ async function relaySystemMessage(message) {
       .filter((channel) => channel?.isTextBased())
       .map((channel) => channel.send(payload))
   );
-}
-
-async function relayStreamStatusMessage(broadcasterName, message, statusCache, editWindowMs) {
-  if (!discordChannels.length) {
-    const channelIds = DISCORD_CHANNEL_ID.split(",").map((id) => id.trim()).filter(Boolean);
-    discordChannels = await Promise.all(
-      channelIds.map((id) => discordClient.channels.fetch(id).catch(() => null))
-    );
-    discordChannels = discordChannels.filter(Boolean);
-  }
-
-  const payload = `[SYSTEM] ${message}`;
-  const now = Date.now();
-
-  // Check if we have a recent message to edit
-  const cachedEntry = statusCache.get(broadcasterName);
-  if (cachedEntry && (now - cachedEntry.timestamp) <= editWindowMs) {
-    // Edit the existing messages
-    await Promise.all(
-      cachedEntry.messages.map(async (msg) => {
-        try {
-          await msg.edit(payload);
-        } catch (error) {
-          console.error("Failed to edit stream status message", error);
-        }
-      })
-    );
-  } else {
-    // Send new messages
-    const sentMessages = await Promise.all(
-      discordChannels
-        .filter((channel) => channel?.isTextBased())
-        .map((channel) => channel.send(payload).catch(() => null))
-    );
-
-    // Cache the new messages
-    statusCache.set(broadcasterName, {
-      messages: sentMessages.filter(Boolean),
-      timestamp: now
-    });
-  }
 }
 
 async function hydrateBlacklist() {
