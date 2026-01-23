@@ -465,20 +465,22 @@ function formatRelayMessage(username, message) {
 
 function isSuspiciousMessage(message) {
   if (SUSPICIOUS_FLAG_ENABLED?.toLowerCase() === "false") {
-    return false;
+    return null;
   }
-  if (!filters.blockedWords.length && !filters.blockedRegexes?.length) return false;
+  if (!filters.blockedWords.length && !filters.blockedRegexes?.length) return null;
   const lowerMessage = message.toLowerCase();
-  const wordHit = filters.blockedWords.some((word) =>
+  const matchedWord = filters.blockedWords.find((word) =>
     word && lowerMessage.includes(word.toLowerCase())
   );
-  const regexHit = filters.blockedRegexes?.some((regex) => {
+  if (matchedWord) return matchedWord;
+  const matchedRegex = filters.blockedRegexes?.find((regex) => {
     if (regex.global || regex.sticky) {
       regex.lastIndex = 0;
     }
     return regex.test(message);
   });
-  return wordHit || regexHit;
+  if (matchedRegex) return matchedRegex.source;
+  return null;
 }
 
 function resolveReactionAction(reaction, actionConfig, requireMatch) {
@@ -516,8 +518,8 @@ async function relayToDiscord(username, message, twitchChannel = null) {
     // If no mapping found, fall back to all channels
   }
 
-  const suspicious = isSuspiciousMessage(message);
-  const suffix = suspicious ? " ⚠️ Suspicious message" : "";
+  const suspiciousMatch = isSuspiciousMessage(message);
+  const suffix = suspiciousMatch ? ` ⚠️ Suspicious message [${suspiciousMatch}]` : "";
 
   // Add channel prefix if multi-channel mode
   const channelPrefix = TWITCH_CHANNELS.length > 1 && twitchChannel ? `[${twitchChannel.replace(/^#/, "")}] ` : "";
@@ -526,7 +528,7 @@ async function relayToDiscord(username, message, twitchChannel = null) {
   for (const channel of targetChannels) {
     if (!channel?.isTextBased()) continue;
     const result = await channel.send(`${channelPrefix}${formatRelayMessage(username, message)}${suffix}`);
-    if (suspicious) {
+    if (suspiciousMatch) {
       addModerationReactions(result).catch((error) => {
         console.warn("Failed to add moderation reactions", error);
       });
