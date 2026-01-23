@@ -145,7 +145,7 @@ async function getPlaybackAccessToken(channel, clientId, authToken) {
 
 export async function startFreezeMonitor(
   env,
-  { onFreeze, onRecover, onOffline, onOnline, logger }
+  { onFreeze, onRecover, onOffline, onOnline, waitForOnline, logger }
 ) {
   const enabled = parseBool(env.FREEZE_CHECK_ENABLED, false);
   if (!enabled) return;
@@ -247,7 +247,17 @@ export async function startFreezeMonitor(
       }
     }
 
-    const delaySeconds = offline ? offlineBackoffSeconds : sampleSeconds;
-    await sleep(delaySeconds * 1000);
+    if (offline && waitForOnline) {
+      logger?.log("Freeze monitor: waiting for EventSub online signal");
+      await waitForOnline();
+      logger?.log("Freeze monitor: received online signal, resuming");
+      // Reset HLS URL so it gets re-fetched on next iteration
+      hlsUrl = env.FREEZE_HLS_URL || null;
+      nextRefreshAt = 0;
+      await sleep(sampleSeconds * 1000);
+    } else {
+      const delaySeconds = offline ? offlineBackoffSeconds : sampleSeconds;
+      await sleep(delaySeconds * 1000);
+    }
   }
 }

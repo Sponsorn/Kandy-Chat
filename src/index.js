@@ -670,7 +670,17 @@ async function start() {
 
   console.log("Relay online: Twitch chat -> Discord channel");
 
-  await startEventSubServer(process.env, {
+  // Signal for EventSub to wake the freeze monitor when stream goes online
+  let freezeOnlineResolve = null;
+  const freezeOnlineSignal = () => {
+    if (freezeOnlineResolve) {
+      freezeOnlineResolve();
+      freezeOnlineResolve = null;
+    }
+  };
+  const freezeWaitForOnline = () => new Promise((resolve) => { freezeOnlineResolve = resolve; });
+
+  const eventSubServer = await startEventSubServer(process.env, {
     logger: console,
     onEvent: (payload) => {
       const type = payload?.subscription?.type || "unknown";
@@ -679,6 +689,7 @@ async function start() {
 
       if (type === "stream.online") {
         console.log(`${broadcasterName} went live on Twitch`);
+        freezeOnlineSignal();
       } else if (type === "stream.offline") {
         console.log(`${broadcasterName} went offline on Twitch`);
       } else if (type === "channel.raid") {
@@ -700,6 +711,7 @@ async function start() {
 
   startFreezeMonitor(freezeEnv, {
     logger: console,
+    waitForOnline: eventSubServer ? freezeWaitForOnline : undefined,
     onFreeze: () => {
       const mention = FREEZE_ALERT_ROLE_ID ? `<@&${FREEZE_ALERT_ROLE_ID}> ` : "";
       relaySystemMessage(`${mention}Stream appears frozen`).catch((error) => {
