@@ -10,7 +10,7 @@ echo "Pulling latest code from GitHub..."
 git pull
 
 echo "Removing stop flag if present..."
-rm -f data/.stopped
+sudo rm -f data/.stopped
 
 echo "Rebuilding and restarting Docker container..."
 docker compose up -d --build

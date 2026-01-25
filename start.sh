@@ -7,7 +7,7 @@ set -e  # Exit on error
 cd /mnt/nvme/kandy-chat
 
 echo "Removing stop flag if present..."
-rm -f data/.stopped
+sudo rm -f data/.stopped
 
 echo "Starting Docker container..."
 docker compose up -d
