@@ -57,7 +57,7 @@ export async function handleRestart(interaction) {
 
   setTimeout(() => {
     console.log("Restart command received, exiting process...");
-    process.exit(0);
+    process.exit(1);
   }, 1000);
 }
 
