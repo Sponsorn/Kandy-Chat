@@ -9,12 +9,12 @@ cd /mnt/nvme/kandy-chat
 echo "Pulling latest code from GitHub..."
 git pull
 
+echo "Removing stop flag if present..."
+rm -f data/.stopped
+
 echo "Rebuilding and restarting Docker container..."
 docker compose up -d --build
 
-echo "Latest logs:"
-docker compose logs --tail=50
-
 echo ""
-echo "Update complete! Bot is running."
-echo "View logs: docker compose logs -f"
+echo "Update complete! Showing logs..."
+docker compose logs -f --tail=35

@@ -1,4 +1,14 @@
 import "dotenv/config";
+import { existsSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
+
+// Check for stop flag before doing anything else
+const STOP_FLAG_PATH = join(process.cwd(), "data", ".stopped");
+if (existsSync(STOP_FLAG_PATH)) {
+  console.log("Stop flag detected, exiting. Remove data/.stopped to start the bot.");
+  process.exit(0);
+}
+
 import {
   Client,
   GatewayIntentBits,
@@ -17,7 +27,6 @@ import {
 } from "discord.js";
 import tmi from "tmi.js";
 import { promises as fs } from "node:fs";
-import { join } from "node:path";
 import {
   buildFilters,
   normalizeMessage,
