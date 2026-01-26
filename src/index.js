@@ -700,7 +700,11 @@ async function start() {
 
       if (type === "stream.online") {
         console.log(`${broadcasterName} went live on Twitch`);
-        freezeOnlineSignal();
+        // Only signal freeze monitor if this is the channel being monitored
+        const freezeChannel = process.env.FREEZE_CHANNEL?.toLowerCase();
+        if (freezeChannel && broadcasterName.toLowerCase() === freezeChannel) {
+          freezeOnlineSignal();
+        }
       } else if (type === "stream.offline") {
         console.log(`${broadcasterName} went offline on Twitch`);
       } else if (type === "channel.raid") {
@@ -725,22 +729,26 @@ async function start() {
     waitForOnline: eventSubServer ? freezeWaitForOnline : undefined,
     onFreeze: () => {
       const mention = FREEZE_ALERT_ROLE_ID ? `<@&${FREEZE_ALERT_ROLE_ID}> ` : "";
-      relaySystemMessage(`${mention}Stream appears frozen`).catch((error) => {
+      const channel = process.env.FREEZE_CHANNEL || "Stream";
+      relaySystemMessage(`${mention}${channel} appears frozen`).catch((error) => {
         console.error("Failed to send freeze alert", error);
       });
     },
     onRecover: () => {
-      relaySystemMessage("Stream motion detected again").catch((error) => {
+      const channel = process.env.FREEZE_CHANNEL || "Stream";
+      relaySystemMessage(`${channel} motion detected again`).catch((error) => {
         console.error("Failed to send recovery alert", error);
       });
     },
     onOffline: () => {
-      relaySystemMessage("Stream appears offline").catch((error) => {
+      const channel = process.env.FREEZE_CHANNEL || "Stream";
+      relaySystemMessage(`${channel} appears offline`).catch((error) => {
         console.error("Failed to send offline alert", error);
       });
     },
     onOnline: () => {
-      relaySystemMessage("Stream appears online").catch((error) => {
+      const channel = process.env.FREEZE_CHANNEL || "Stream";
+      relaySystemMessage(`${channel} appears online`).catch((error) => {
         console.error("Failed to send online alert", error);
       });
     }
