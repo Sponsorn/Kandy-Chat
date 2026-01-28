@@ -644,9 +644,15 @@ function handleTwitchMessage(channel, tags, message, self) {
 
 async function handleTwitchMessageDeleted(channel, username, deletedMessage, userstate) {
   const targetId = userstate?.["target-msg-id"];
+  console.log(`[${channel}] Message deleted: targetId=${targetId}, by=${username}`);
+
   if (!targetId) return;
+
   const record = relayMessageMap.get(targetId);
-  if (!record) return;
+  if (!record) {
+    console.log(`[${channel}] No relay mapping found for deleted message ${targetId}`);
+    return;
+  }
 
   const discordChannelResolved = discordChannels.find(
     (item) => item?.id === record.discordChannelId
@@ -659,7 +665,8 @@ async function handleTwitchMessageDeleted(channel, username, deletedMessage, use
     const message = await discordChannelResolved.messages.fetch(record.discordMessageId);
     if (!message) return;
     if (message.content.includes("(deleted")) return;
-    await message.edit(`${message.content} (deleted)`);
+    await message.edit(`~~${message.content}~~ (deleted)`);
+    console.log(`[${channel}] Updated Discord message as deleted`);
   } catch (error) {
     console.warn("Failed to update deleted message", error);
   }
@@ -902,13 +909,19 @@ function scheduleTokenRefresh(expiresInSeconds) {
 }
 
 async function addModerationReactions(message) {
-  const emojis = [REACTION_DELETE_EMOJI, REACTION_TIMEOUT_EMOJI, REACTION_BAN_EMOJI, REACTION_WARN_EMOJI]
+  const emojis = [REACTION_DELETE_EMOJI, REACTION_TIMEOUT_EMOJI, REACTION_BAN_EMOJI]
     .map((emoji) => (emoji ?? "").trim())
     .filter(Boolean);
+
+  console.log(`Adding moderation reactions: ${emojis.join(", ")}`);
   if (!emojis.length) return;
 
   for (const emoji of emojis) {
-    await message.react(emoji);
+    try {
+      await message.react(emoji);
+    } catch (error) {
+      console.warn(`Failed to add reaction ${emoji}:`, error.message);
+    }
   }
 }
 
