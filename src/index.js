@@ -290,9 +290,17 @@ discordClient.on("messageReactionAdd", async (reaction, user) => {
       await twitchAPIClient.warnUser(channelName, relay.twitchUsername, "Violating community guidelines");
     }
 
-    // Remove all reactions from the message
+    // Remove other reactions, keep only the moderator's clicked reaction
     try {
-      await reaction.message.reactions.removeAll();
+      for (const [, r] of reaction.message.reactions.cache) {
+        if (r.emoji.name !== reaction.emoji.name || r.emoji.id !== reaction.emoji.id) {
+          await r.remove();
+        } else {
+          // Remove the bot's reaction, keep only the moderator's
+          const botUser = reaction.message.client.user;
+          if (botUser) await r.users.remove(botUser.id);
+        }
+      }
     } catch (removeError) {
       console.warn("Failed to remove reactions", removeError);
     }
@@ -666,6 +674,7 @@ async function handleTwitchMessageDeleted(channel, username, deletedMessage, use
     if (!message) return;
     if (message.content.includes("(deleted")) return;
     await message.edit(`~~${message.content}~~ (deleted)`);
+    await message.reactions.removeAll();
     console.log(`[${channel}] Updated Discord message as deleted`);
   } catch (error) {
     console.warn("Failed to update deleted message", error);
