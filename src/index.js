@@ -365,8 +365,10 @@ function handleTwitchSubscription(channel, username, method, message, userstate)
   console.log(`[${channel}] New subscription: ${username} (${tier})`);
 }
 
-function handleTwitchResub(channel, username, months, message, userstate, methods) {
+function handleTwitchResub(channel, username, streakMonths, message, userstate, methods) {
   const tier = getTierName(methods.plan);
+  // Use cumulative months (total) instead of streak months
+  const cumulativeMonths = userstate["msg-param-cumulative-months"] || streakMonths || 0;
 
   // Check if resub thank you messages are enabled (default: true)
   const enabled = RESUB_THANK_YOU_ENABLED !== "false";
@@ -375,7 +377,7 @@ function handleTwitchResub(channel, username, months, message, userstate, method
     sendTwitchMessage(thankYouMessage, channel);
   }
 
-  console.log(`[${channel}] Resub: ${username} (${tier}, ${months} months)`);
+  console.log(`[${channel}] Resub: ${username} (${tier}, ${cumulativeMonths} months, current streak ${streakMonths})`);
 }
 
 // Gift sub batching to combine multiple gift events into a single message
