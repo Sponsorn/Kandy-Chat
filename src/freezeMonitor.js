@@ -157,6 +157,7 @@ export async function startFreezeMonitor(
   const tokenRefreshSeconds = parseIntEnv(env.FREEZE_TOKEN_REFRESH_SECONDS, 300);
   const debug = parseBool(env.FREEZE_DEBUG, false);
   const offlineFailThreshold = parseIntEnv(env.FREEZE_OFFLINE_FAILS, 3);
+  const recoveryFrames = parseIntEnv(env.FREEZE_RECOVERY_FRAMES, 3);
   const offlineBackoffSeconds = parseIntEnv(
     env.FREEZE_OFFLINE_BACKOFF_SECONDS,
     30
@@ -185,6 +186,7 @@ export async function startFreezeMonitor(
   let lastHash = null;
   let lastChangeAt = Date.now();
   let frozen = false;
+  let motionFrames = 0;
   let offline = false;
   let consecutiveFailures = 0;
 
@@ -217,6 +219,7 @@ export async function startFreezeMonitor(
         if (debug) {
           logger?.log("Freeze monitor: unchanged frame");
         }
+        motionFrames = 0;
         if (!frozen && now - lastChangeAt >= thresholdSeconds * 1000) {
           frozen = true;
           onFreeze?.();
@@ -228,8 +231,12 @@ export async function startFreezeMonitor(
         lastHash = hash;
         lastChangeAt = now;
         if (frozen) {
-          frozen = false;
-          onRecover?.();
+          motionFrames += 1;
+          if (motionFrames >= recoveryFrames) {
+            frozen = false;
+            motionFrames = 0;
+            onRecover?.();
+          }
         }
       }
     } catch (error) {
