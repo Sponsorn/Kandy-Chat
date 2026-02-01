@@ -153,6 +153,7 @@ Setup:
 - `EVENTSUB_CALLBACK_PATH=/eventsub`
 - `EVENTSUB_PORT=8080`
 - `EVENTSUB_BROADCASTER=your_channel_name`
+- `STREAM_ALERT_ROLE_ID=...` (optional: role to ping when stream goes offline)
 
 2) Expose your local port (example with ngrok):
 ```bash

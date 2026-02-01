@@ -1,15 +1,14 @@
 import crypto from "node:crypto";
-
-function parseBool(value, fallback = false) {
-  if (value === undefined) return fallback;
-  return value.toLowerCase() === "true";
-}
+import { parseBool } from "./envUtils.js";
 
 function verifySignature(secret, messageId, timestamp, rawBody, signature) {
   if (!secret || !signature || !messageId || !timestamp) return false;
   const message = `${messageId}${timestamp}${rawBody}`;
   const expected = `sha256=${crypto.createHmac("sha256", secret).update(message).digest("hex")}`;
-  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+  const expectedBuf = Buffer.from(expected);
+  const signatureBuf = Buffer.from(signature);
+  if (expectedBuf.length !== signatureBuf.length) return false;
+  return crypto.timingSafeEqual(expectedBuf, signatureBuf);
 }
 
 function getHeader(req, name) {

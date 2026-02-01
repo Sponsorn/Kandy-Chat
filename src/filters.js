@@ -1,14 +1,11 @@
+import { parseBool } from "./envUtils.js";
+
 function parseList(value) {
   if (!value) return [];
   return value
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
-}
-
-function parseBool(value, fallback = false) {
-  if (value === undefined) return fallback;
-  return value.toLowerCase() === "true";
 }
 
 function normalizeMessage(message) {

@@ -68,6 +68,7 @@ const {
   TWITCH_CHANNEL_MAPPING,
   TWITCH_RELAY_CHANNELS,
   FREEZE_ALERT_ROLE_ID,
+  STREAM_ALERT_ROLE_ID,
   DISCORD_CLIENT_ID,
   DISCORD_GUILD_ID,
   SUSPICIOUS_FLAG_ENABLED,
@@ -137,6 +138,7 @@ let freezeAuthManaged = false;
 const relayMessageMap = new Map();
 const relayDiscordMap = new Map();
 const RELAY_CACHE_TTL_MS = 1 * 60 * 60 * 1000; // 1 hour (reduced from 6 for memory efficiency)
+const GIFT_SUB_BATCH_MS = 1500;
 
 // Initialize Twitch API client
 const twitchAPIClient = new TwitchAPIClient(
@@ -423,7 +425,7 @@ function handleTwitchSubGift(channel, username, streakMonths, recipient, methods
     clearTimeout(batch.timer);
   }
 
-  // Set new timer to send combined message after 1.5 seconds
+  // Set new timer to send combined message after batch delay
   batch.timer = setTimeout(() => {
     const recipientCount = batch.recipients.length;
     const recipientText = recipientCount === 1 ? batch.recipients[0] : `${recipientCount} users`;
@@ -434,7 +436,7 @@ function handleTwitchSubGift(channel, username, streakMonths, recipient, methods
 
     // Clean up batch
     giftSubBatches.delete(batchKey);
-  }, 1500);
+  }, GIFT_SUB_BATCH_MS);
 }
 
 function attachTwitchHandlers(client) {
@@ -725,6 +727,10 @@ async function start() {
         }
       } else if (type === "stream.offline") {
         console.log(`${broadcasterName} went offline on Twitch`);
+        const mention = STREAM_ALERT_ROLE_ID ? `<@&${STREAM_ALERT_ROLE_ID}> ` : "";
+        relaySystemMessage(`${mention}${broadcasterName} has gone offline`).catch((error) => {
+          console.error("Failed to send offline stream alert", error);
+        });
       } else if (type === "channel.raid") {
         const fromBroadcaster = payload?.event?.from_broadcaster_user_name || payload?.event?.from_broadcaster_user_login;
         const toBroadcaster = payload?.event?.to_broadcaster_user_name || payload?.event?.to_broadcaster_user_login;

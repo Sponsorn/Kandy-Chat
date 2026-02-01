@@ -3,16 +3,7 @@ import { promises as fs } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-function parseBool(value, fallback = false) {
-  if (value === undefined) return fallback;
-  return value.toLowerCase() === "true";
-}
-
-function parseIntEnv(value, fallback) {
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
+import { parseBool, parseIntEnv } from "./envUtils.js";
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
