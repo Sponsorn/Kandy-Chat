@@ -137,6 +137,7 @@ let currentRefreshToken = TWITCH_REFRESH_TOKEN;
 let freezeAuthManaged = false;
 const relayMessageMap = new Map();
 const relayDiscordMap = new Map();
+const recentRaids = new Map(); // channel (lowercase) -> timestamp
 const RELAY_CACHE_TTL_MS = 1 * 60 * 60 * 1000; // 1 hour (reduced from 6 for memory efficiency)
 const GIFT_SUB_BATCH_MS = 1500;
 
@@ -727,6 +728,26 @@ async function start() {
         }
       } else if (type === "stream.offline") {
         console.log(`${broadcasterName} went offline on Twitch`);
+
+        // Check if this channel should trigger offline alerts
+        const offlineAlertChannels = process.env.OFFLINE_ALERT_CHANNELS
+          ?.split(",").map(c => c.trim().toLowerCase()).filter(Boolean);
+
+        if (offlineAlertChannels?.length &&
+            !offlineAlertChannels.includes(broadcasterName.toLowerCase())) {
+          console.log(`Skipping offline alert - ${broadcasterName} not in OFFLINE_ALERT_CHANNELS`);
+          return;
+        }
+
+        // Check if this was a raid (suppress offline notification)
+        const raidTime = recentRaids.get(broadcasterName.toLowerCase());
+        const raidSuppressMs = (parseInt(process.env.RAID_SUPPRESS_WINDOW_SECONDS, 10) || 30) * 1000;
+        if (raidTime && Date.now() - raidTime < raidSuppressMs) {
+          console.log(`Skipping offline alert - ${broadcasterName} raided recently`);
+          recentRaids.delete(broadcasterName.toLowerCase());
+          return;
+        }
+
         const mention = STREAM_ALERT_ROLE_ID ? `<@&${STREAM_ALERT_ROLE_ID}> ` : "";
         relaySystemMessage(`${mention}${broadcasterName} has gone offline`).catch((error) => {
           console.error("Failed to send offline stream alert", error);
@@ -736,6 +757,11 @@ async function start() {
         const toBroadcaster = payload?.event?.to_broadcaster_user_name || payload?.event?.to_broadcaster_user_login;
         const viewers = payload?.event?.viewers || 0;
         console.log(`Raid: ${fromBroadcaster} raided ${toBroadcaster} with ${viewers} viewers`);
+
+        // Track raid for offline notification suppression
+        if (fromBroadcaster) {
+          recentRaids.set(fromBroadcaster.toLowerCase(), Date.now());
+        }
       }
     }
   });
