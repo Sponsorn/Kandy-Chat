@@ -40,6 +40,7 @@ export function BlacklistEditor() {
   const [success, setSuccess] = useState(null);
   const [words, setWords] = useState(blacklistWords.value);
   const [regexes, setRegexes] = useState(blacklistRegex.value);
+  const [searchTerm, setSearchTerm] = useState("");
 
   useEffect(() => {
     fetchBlacklist();
@@ -96,11 +97,25 @@ export function BlacklistEditor() {
 
   const total = words.length + regexes.length;
 
+  // Filter and sort entries
+  const filteredWords = words
+    .filter(w => w.toLowerCase().includes(searchTerm.toLowerCase()))
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+
+  const filteredRegexes = regexes
+    .filter(r => r.toLowerCase().includes(searchTerm.toLowerCase()))
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+
+  const filteredTotal = filteredWords.length + filteredRegexes.length;
+  const countDisplay = searchTerm
+    ? `${filteredTotal} of ${total} entries`
+    : `${total} entries`;
+
   return html`
     <div class="card">
       <div class="card-header">
         <span class="card-title">Blacklist</span>
-        <span class="text-muted">${total} entries</span>
+        <span class="text-muted">${countDisplay}</span>
       </div>
       <div class="card-body">
         ${error && html`
@@ -133,18 +148,35 @@ export function BlacklistEditor() {
           </p>
         </form>
 
+        ${total > 0 && html`
+          <div style="margin-bottom: 1rem;">
+            <input
+              type="text"
+              class="form-input"
+              placeholder="Search blacklist..."
+              value=${searchTerm}
+              onInput=${(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+        `}
+
         ${total === 0 ? html`
           <div class="empty-state">
             <div class="empty-state-icon">🚫</div>
             <p>Blacklist is empty</p>
           </div>
+        ` : filteredTotal === 0 ? html`
+          <div class="empty-state">
+            <div class="empty-state-icon">🔍</div>
+            <p>No entries match "${searchTerm}"</p>
+          </div>
         ` : html`
           <div class="blacklist-list">
-            ${words.length > 0 && html`
+            ${filteredWords.length > 0 && html`
               <div style="padding: 0.5rem 0.75rem; background: var(--bg-tertiary); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">
-                Words (${words.length})
+                Words (${filteredWords.length})
               </div>
-              ${words.map(word => html`
+              ${filteredWords.map(word => html`
                 <${BlacklistItem}
                   key=${word}
                   word=${word}
@@ -154,11 +186,11 @@ export function BlacklistEditor() {
               `)}
             `}
 
-            ${regexes.length > 0 && html`
-              <div style="padding: 0.5rem 0.75rem; background: var(--bg-tertiary); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; margin-top: ${words.length > 0 ? "1rem" : "0"};">
-                Regex Patterns (${regexes.length})
+            ${filteredRegexes.length > 0 && html`
+              <div style="padding: 0.5rem 0.75rem; background: var(--bg-tertiary); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; margin-top: ${filteredWords.length > 0 ? "1rem" : "0"};">
+                Regex Patterns (${filteredRegexes.length})
               </div>
-              ${regexes.map(regex => html`
+              ${filteredRegexes.map(regex => html`
                 <${BlacklistItem}
                   key=${regex}
                   word=${regex}

@@ -15,9 +15,34 @@ export function createControlRoutes(options = {}) {
   const router = Router();
 
   /**
+   * GET /api/audit - Get audit log entries (requires admin)
+   */
+  router.get("/api/audit", requireAuth(Permissions.ADMIN), (req, res) => {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+    const offset = parseInt(req.query.offset, 10) || 0;
+
+    const entries = botState.getAuditLog(limit, offset);
+    const total = botState.auditLog.length;
+
+    res.json({
+      entries,
+      total,
+      limit,
+      offset
+    });
+  });
+
+  /**
    * POST /api/control/restart - Restart the bot (requires admin)
    */
   router.post("/api/control/restart", requireAuth(Permissions.ADMIN), (req, res) => {
+    const actor = req.session?.user?.username || "unknown";
+
+    // Log the restart action
+    botState.recordAuditEvent("restart", actor, {
+      reason: req.body?.reason || "Manual restart from dashboard"
+    }, "dashboard");
+
     // Remove stop flag if it exists
     try {
       if (existsSync(STOP_FLAG_PATH)) {
@@ -43,6 +68,13 @@ export function createControlRoutes(options = {}) {
    * POST /api/control/stop - Stop the bot (requires admin)
    */
   router.post("/api/control/stop", requireAuth(Permissions.ADMIN), (req, res) => {
+    const actor = req.session?.user?.username || "unknown";
+
+    // Log the stop action
+    botState.recordAuditEvent("stop", actor, {
+      reason: req.body?.reason || "Manual stop from dashboard"
+    }, "dashboard");
+
     // Write stop flag to prevent restart
     try {
       writeFileSync(STOP_FLAG_PATH, new Date().toISOString(), "utf8");

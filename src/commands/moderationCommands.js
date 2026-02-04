@@ -2,6 +2,7 @@ import { MessageFlags } from "discord.js";
 import { writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { validateUsername } from "../utils/validation.js";
+import botState from "../state/BotState.js";
 
 const STOP_FLAG_PATH = join(process.cwd(), "data", ".stopped");
 
@@ -41,6 +42,13 @@ export async function handleWarn(interaction, { twitchAPIClient, TWITCH_CHANNEL 
  * Handle /klb restart command
  */
 export async function handleRestart(interaction) {
+  const actor = interaction.user.username;
+
+  // Log the restart action
+  botState.recordAuditEvent("restart", actor, {
+    reason: "Manual restart via Discord command"
+  }, "discord");
+
   // Remove stop flag if it exists so bot can start
   try {
     if (existsSync(STOP_FLAG_PATH)) {
@@ -65,6 +73,13 @@ export async function handleRestart(interaction) {
  * Handle /klb stop command
  */
 export async function handleStop(interaction) {
+  const actor = interaction.user.username;
+
+  // Log the stop action
+  botState.recordAuditEvent("stop", actor, {
+    reason: "Manual stop via Discord command"
+  }, "discord");
+
   // Write stop flag to prevent restart
   try {
     writeFileSync(STOP_FLAG_PATH, new Date().toISOString(), "utf8");

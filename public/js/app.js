@@ -14,6 +14,7 @@ import { ModLog } from "./components/ModLog.js";
 import { BlacklistEditor } from "./components/BlacklistEditor.js";
 import { ConfigPanel } from "./components/ConfigPanel.js";
 import { ControlPanel } from "./components/ControlPanel.js";
+import { AuditLog } from "./components/AuditLog.js";
 
 // Pages
 function HomePage() {
@@ -121,6 +122,26 @@ function ControlPage() {
   `;
 }
 
+function AuditPage() {
+  if (!canAdmin.value) {
+    return html`
+      <div class="alert alert-error">
+        You don't have permission to view this page.
+      </div>
+    `;
+  }
+
+  return html`
+    <div>
+      <header class="page-header">
+        <h1 class="page-title">Audit Log</h1>
+        <p class="page-subtitle">History of administrative actions</p>
+      </header>
+      <${AuditLog} />
+    </div>
+  `;
+}
+
 function NotFoundPage() {
   return html`
     <div class="empty-state">
@@ -146,6 +167,8 @@ function Router({ route }) {
       return html`<${SettingsPage} />`;
     case "/control":
       return html`<${ControlPage} />`;
+    case "/audit":
+      return html`<${AuditPage} />`;
     default:
       return html`<${NotFoundPage} />`;
   }
