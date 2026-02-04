@@ -158,8 +158,16 @@ export function createDashboardSocket(server) {
     broadcast("config:update", { type: "filters" }, Permissions.MODERATOR);
   });
 
+  botState.on("runtimeConfig:updated", (data) => {
+    broadcast("config:update", { type: "runtimeConfig", ...data }, Permissions.MODERATOR);
+  });
+
   botState.on("tokens:updated", () => {
     broadcast("config:update", { type: "tokens" }, Permissions.ADMIN);
+  });
+
+  botState.on("audit:event", (data) => {
+    broadcast("audit:event", data, Permissions.ADMIN);
   });
 
   // Periodic status broadcast every 30 seconds

@@ -42,6 +42,12 @@ class BotState extends EventEmitter {
     // Subscription batching
     this.giftSubBatches = new Map();
 
+    // Runtime configuration (overrides env defaults when set)
+    this.runtimeConfig = {
+      filters: {},
+      subscriptionMessages: {}
+    };
+
     // Metrics for dashboard
     this.metrics = {
       messagesRelayed: 0,
@@ -51,6 +57,10 @@ class BotState extends EventEmitter {
       streamStatus: "unknown", // "online", "offline", "frozen", "unknown"
       freezeDetectedAt: null
     };
+
+    // Audit log for admin actions
+    this.auditLog = [];
+    this.maxAuditLogEntries = 500;
 
     // Configuration cache
     this.config = {
@@ -195,6 +205,43 @@ class BotState extends EventEmitter {
   }
 
   /**
+   * Record an audit log entry for admin/system actions
+   * @param {string} action - Action type (restart, stop, config_change, etc.)
+   * @param {string} actor - Username or "system" who performed the action
+   * @param {object} details - Additional details about the action
+   * @param {string} source - Source of the action (discord, dashboard, system)
+   */
+  recordAuditEvent(action, actor, details = {}, source = "system") {
+    const entry = {
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      action,
+      actor,
+      details,
+      source,
+      timestamp: Date.now()
+    };
+
+    this.auditLog.unshift(entry);
+
+    // Trim to max entries
+    if (this.auditLog.length > this.maxAuditLogEntries) {
+      this.auditLog = this.auditLog.slice(0, this.maxAuditLogEntries);
+    }
+
+    this.emit("audit:event", entry);
+    return entry;
+  }
+
+  /**
+   * Get audit log entries
+   * @param {number} limit - Max entries to return
+   * @param {number} offset - Offset for pagination
+   */
+  getAuditLog(limit = 50, offset = 0) {
+    return this.auditLog.slice(offset, offset + limit);
+  }
+
+  /**
    * Record a filtered message
    */
   recordFilteredMessage() {
@@ -304,6 +351,74 @@ class BotState extends EventEmitter {
   }
 
   /**
+   * Set runtime configuration from loaded data
+   * @param {Object} config - Configuration object from configStore
+   */
+  setRuntimeConfig(config) {
+    if (config.filters) {
+      this.runtimeConfig.filters = { ...config.filters };
+    }
+    if (config.subscriptionMessages) {
+      this.runtimeConfig.subscriptionMessages = { ...config.subscriptionMessages };
+    }
+    this.emit("runtimeConfig:updated", { config: this.runtimeConfig });
+  }
+
+  /**
+   * Update a specific runtime config section
+   * @param {string} section - Section name (filters, subscriptionMessages)
+   * @param {string} key - Key within the section
+   * @param {*} value - Value to set
+   */
+  updateRuntimeConfig(section, key, value) {
+    if (!this.runtimeConfig[section]) {
+      this.runtimeConfig[section] = {};
+    }
+    this.runtimeConfig[section][key] = value;
+
+    // Apply filter changes immediately if applicable
+    if (section === "filters" && this.filters) {
+      if (key === "blockCommands" && value !== null) {
+        this.filters.blockCommands = value;
+      } else if (key === "blockEmotes" && value !== null) {
+        this.filters.blockEmotes = value;
+      }
+    }
+
+    // Apply suspicious flag change to config
+    if (section === "filters" && key === "suspiciousFlagEnabled" && value !== null) {
+      this.config.suspiciousFlagEnabled = value;
+    }
+
+    this.emit("runtimeConfig:updated", { section, key, value });
+  }
+
+  /**
+   * Get effective config value, preferring runtime over env default
+   * @param {string} section - Section name
+   * @param {string} key - Key within the section
+   * @param {*} envDefault - Default value from environment
+   * @returns {*} Effective value
+   */
+  getEffectiveConfig(section, key, envDefault) {
+    const runtimeValue = this.runtimeConfig[section]?.[key];
+    // Only use runtime value if it's explicitly set (not null/undefined)
+    if (runtimeValue !== null && runtimeValue !== undefined) {
+      return runtimeValue;
+    }
+    return envDefault;
+  }
+
+  /**
+   * Get full subscription message config for a type
+   * @param {string} type - sub, resub, or giftSub
+   * @returns {Object} Message configuration
+   */
+  getSubscriptionMessageConfig(type) {
+    return this.runtimeConfig.subscriptionMessages?.[type] || {};
+  }
+
+  /**
    * Get bot uptime in milliseconds
    */
   getUptime() {
@@ -346,7 +461,8 @@ class BotState extends EventEmitter {
         twitch: !!this.twitchClient?.readyState() === "OPEN"
       },
       blacklistCount: this.runtimeBlacklist.size,
-      relayMapSize: this.relayMessageMap.size
+      relayMapSize: this.relayMessageMap.size,
+      runtimeConfig: { ...this.runtimeConfig }
     };
   }
 }

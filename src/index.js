@@ -13,6 +13,7 @@ import { Client, GatewayIntentBits, Partials } from "discord.js";
 import { validateConfigOrThrow } from "./config/configValidator.js";
 import { buildFilters, normalizeMessage } from "./filters.js";
 import { loadBlacklist } from "./blacklistStore.js";
+import { loadConfig } from "./configStore.js";
 import { startFreezeMonitor } from "./freezeMonitor.js";
 import { startWebServer } from "./server/webServer.js";
 import { TwitchAPIClient } from "./api/TwitchAPIClient.js";
@@ -110,6 +111,31 @@ async function hydrateBlacklist() {
   }
 }
 
+// Hydrate runtime config from storage
+async function hydrateRuntimeConfig() {
+  try {
+    const config = await loadConfig();
+    botState.setRuntimeConfig(config);
+
+    // Apply filter settings from runtime config
+    if (config.filters) {
+      if (config.filters.blockCommands !== null && botState.filters) {
+        botState.filters.blockCommands = config.filters.blockCommands;
+      }
+      if (config.filters.blockEmotes !== null && botState.filters) {
+        botState.filters.blockEmotes = config.filters.blockEmotes;
+      }
+      if (config.filters.suspiciousFlagEnabled !== null) {
+        botState.config.suspiciousFlagEnabled = config.filters.suspiciousFlagEnabled;
+      }
+    }
+
+    console.log("Runtime config loaded from storage");
+  } catch (error) {
+    console.warn("Failed to load runtime config file", error);
+  }
+}
+
 // Create relay system message wrapper
 function createRelaySystemMessage(channelId) {
   return (message) => relaySystemMessage(message, channelId);
@@ -150,6 +176,7 @@ setupDiscordHandlers(discordClient, twitchAPIClient, {
 async function start() {
   await discordClient.login(DISCORD_TOKEN);
   await hydrateBlacklist();
+  await hydrateRuntimeConfig();
 
   const tokenInfo = await refreshAndApplyTwitchToken(credentials);
   const oauthToken = tokenInfo?.oauthToken ?? botState.currentOAuthToken;
@@ -164,6 +191,12 @@ async function start() {
 
   await connectTwitch(oauthToken, TWITCH_USERNAME, process.env, DISCORD_CHANNEL_ID);
   console.log("Relay online: Twitch chat -> Discord channel");
+
+  // Record bot start in audit log
+  botState.recordAuditEvent("start", "system", {
+    channels: botState.twitchChannels.join(", "),
+    reason: "Bot started"
+  }, "system");
 
   // Start relay cleanup interval
   startRelayCleanup();

@@ -51,6 +51,16 @@ export function addModAction(action) {
   modActions.value = newActions.slice(0, MAX_MOD_ACTIONS);
 }
 
+// Audit log (admin only)
+export const auditLog = signal([]);
+const MAX_AUDIT_ENTRIES = 100;
+
+export function addAuditEntry(entry) {
+  const current = auditLog.value;
+  const newEntries = [entry, ...current.filter(e => e.id !== entry.id)];
+  auditLog.value = newEntries.slice(0, MAX_AUDIT_ENTRIES);
+}
+
 // Blacklist
 export const blacklistWords = signal([]);
 export const blacklistRegex = signal([]);
@@ -106,9 +116,16 @@ export function updateFromWs(data) {
       freezeDetectedAt.value = null;
     }
     dispatchStatusUpdate();
-  } else if (data.type === "config:update" && data.data.type === "blacklist") {
-    // Refresh blacklist on update
-    fetchBlacklist();
+  } else if (data.type === "config:update") {
+    if (data.data.type === "blacklist") {
+      // Refresh blacklist on update
+      fetchBlacklist();
+    } else if (data.data.type === "runtimeConfig" || data.data.type === "filters") {
+      // Notify config panel to refresh
+      window.dispatchEvent(new CustomEvent("app:config-update"));
+    }
+  } else if (data.type === "audit:event") {
+    addAuditEntry(data.data);
   }
 }
 

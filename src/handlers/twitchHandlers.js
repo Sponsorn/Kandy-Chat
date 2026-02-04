@@ -6,6 +6,30 @@ import { relayToDiscord, recordRelayMapping, relaySystemMessage } from "../servi
 const GIFT_SUB_BATCH_MS = 1500;
 
 /**
+ * Default subscription message templates
+ */
+const DEFAULT_MESSAGES = {
+  sub: "hype Welcome to Kandyland, {user}! kandyKiss",
+  resub: "hype Welcome back to Kandyland, {user}! kandyKiss",
+  giftSubSingle: "Thank you for gifting to {recipient}, {user}! kandyHype",
+  giftSubMultiple: "Thank you for gifting to {recipient_count} users, {user}! kandyHype"
+};
+
+/**
+ * Process a message template by replacing tags with values
+ * @param {string} template - Message template with {tag} placeholders
+ * @param {Object} variables - Key-value pairs for replacement
+ * @returns {string} Processed message
+ */
+function processTemplate(template, variables) {
+  let result = template;
+  for (const [key, value] of Object.entries(variables)) {
+    result = result.replace(new RegExp(`\\{${key}\\}`, "g"), value ?? "");
+  }
+  return result;
+}
+
+/**
  * Get tier name from plan code
  */
 function getTierName(tier) {
@@ -59,10 +83,21 @@ function handleKlbPing(tags, channel) {
  */
 function handleTwitchSubscription(channel, username, method, message, userstate, env) {
   const tier = getTierName(method.plan);
-  const enabled = env.SUB_THANK_YOU_ENABLED !== "false";
+  const channelName = channel.replace(/^#/, "");
+
+  // Get config - runtime config takes precedence over env
+  const subConfig = botState.getSubscriptionMessageConfig("sub");
+  const enabled = subConfig.enabled !== null
+    ? subConfig.enabled
+    : env.SUB_THANK_YOU_ENABLED !== "false";
 
   if (enabled) {
-    const thankYouMessage = `hype Welcome to Kandyland, ${username}! kandyKiss`;
+    const template = subConfig.message || DEFAULT_MESSAGES.sub;
+    const thankYouMessage = processTemplate(template, {
+      user: username,
+      tier: tier,
+      channel: channelName
+    });
     sendTwitchMessage(thankYouMessage, channel);
   }
 
@@ -75,10 +110,24 @@ function handleTwitchSubscription(channel, username, method, message, userstate,
 function handleTwitchResub(channel, username, streakMonths, message, userstate, methods, env) {
   const tier = getTierName(methods.plan);
   const cumulativeMonths = userstate["msg-param-cumulative-months"] || streakMonths || 0;
-  const enabled = env.RESUB_THANK_YOU_ENABLED !== "false";
+  const channelName = channel.replace(/^#/, "");
+
+  // Get config - runtime config takes precedence over env
+  const resubConfig = botState.getSubscriptionMessageConfig("resub");
+  const enabled = resubConfig.enabled !== null
+    ? resubConfig.enabled
+    : env.RESUB_THANK_YOU_ENABLED !== "false";
 
   if (enabled) {
-    const thankYouMessage = `hype Welcome back to Kandyland, ${username}! kandyKiss`;
+    const template = resubConfig.message || DEFAULT_MESSAGES.resub;
+    const thankYouMessage = processTemplate(template, {
+      user: username,
+      tier: tier,
+      channel: channelName,
+      months: String(cumulativeMonths),
+      streak_months: String(streakMonths || 0),
+      message: message || ""
+    });
     sendTwitchMessage(thankYouMessage, channel);
   }
 
@@ -92,7 +141,12 @@ function handleTwitchSubGift(channel, username, streakMonths, recipient, methods
   const tier = getTierName(methods.plan);
   console.log(`[${channel}] Gift sub: ${username} -> ${recipient} (${tier})`);
 
-  const enabled = env.GIFT_SUB_THANK_YOU_ENABLED !== "false";
+  // Get config - runtime config takes precedence over env
+  const giftConfig = botState.getSubscriptionMessageConfig("giftSub");
+  const enabled = giftConfig.enabled !== null
+    ? giftConfig.enabled
+    : env.GIFT_SUB_THANK_YOU_ENABLED !== "false";
+
   if (!enabled) return;
 
   const batchKey = `${channel}:${username}`;
@@ -103,7 +157,8 @@ function handleTwitchSubGift(channel, username, streakMonths, recipient, methods
       channel,
       username,
       recipients: [],
-      timer: null
+      timer: null,
+      tier
     };
     botState.giftSubBatches.set(batchKey, batch);
   }
@@ -116,8 +171,26 @@ function handleTwitchSubGift(channel, username, streakMonths, recipient, methods
 
   batch.timer = setTimeout(() => {
     const recipientCount = batch.recipients.length;
-    const recipientText = recipientCount === 1 ? batch.recipients[0] : `${recipientCount} users`;
-    const thankYouMessage = `Thank you for gifting to ${recipientText}, ${batch.username}! kandyHype`;
+    const channelName = batch.channel.replace(/^#/, "");
+
+    let thankYouMessage;
+    if (recipientCount === 1) {
+      const template = giftConfig.messageSingle || DEFAULT_MESSAGES.giftSubSingle;
+      thankYouMessage = processTemplate(template, {
+        user: batch.username,
+        recipient: batch.recipients[0],
+        tier: batch.tier,
+        channel: channelName
+      });
+    } else {
+      const template = giftConfig.messageMultiple || DEFAULT_MESSAGES.giftSubMultiple;
+      thankYouMessage = processTemplate(template, {
+        user: batch.username,
+        recipient_count: String(recipientCount),
+        tier: batch.tier,
+        channel: channelName
+      });
+    }
 
     sendTwitchMessage(thankYouMessage, batch.channel);
     console.log(`[${batch.channel}] Sent combined gift sub thank you for ${recipientCount} gift(s) from ${batch.username}`);

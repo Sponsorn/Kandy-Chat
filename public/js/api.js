@@ -127,6 +127,18 @@ export const config = {
 
   async getFilters() {
     return request("GET", "/api/filters");
+  },
+
+  async updateFilters(filters) {
+    return request("PUT", "/api/filters", filters);
+  },
+
+  async getSubscriptionMessages() {
+    return request("GET", "/api/subscription-messages");
+  },
+
+  async updateSubscriptionMessages(messages) {
+    return request("PUT", "/api/subscription-messages", messages);
   }
 };
 
@@ -138,5 +150,12 @@ export const control = {
 
   async stop() {
     return request("POST", "/api/control/stop");
+  }
+};
+
+// Audit API
+export const audit = {
+  async get(limit = 50, offset = 0) {
+    return request("GET", `/api/audit?limit=${limit}&offset=${offset}`);
   }
 };
