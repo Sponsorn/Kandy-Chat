@@ -275,19 +275,33 @@ export function createConfigRoutes(options = {}) {
   router.get("/api/subscription-messages", requireAuth(Permissions.MODERATOR), async (req, res) => {
     try {
       const config = await loadConfig();
+
+      // Helper to get effective enabled state (config value, or env default if null/undefined)
+      const getEffectiveEnabled = (configEnabled, envVar) => {
+        if (configEnabled !== null && configEnabled !== undefined) {
+          return configEnabled;
+        }
+        // Env vars default to true unless explicitly set to "false"
+        return process.env[envVar] !== "false";
+      };
+
+      const subConfig = config.subscriptionMessages?.sub;
+      const resubConfig = config.subscriptionMessages?.resub;
+      const giftSubConfig = config.subscriptionMessages?.giftSub;
+
       res.json({
-        sub: config.subscriptionMessages?.sub || {
-          enabled: null,
-          message: "hype Welcome to Kandyland, {user}! kandyKiss"
+        sub: {
+          enabled: getEffectiveEnabled(subConfig?.enabled, "SUB_THANK_YOU_ENABLED"),
+          message: subConfig?.message || "hype Welcome to Kandyland, {user}! kandyKiss"
         },
-        resub: config.subscriptionMessages?.resub || {
-          enabled: null,
-          message: "hype Welcome back to Kandyland, {user}! kandyKiss"
+        resub: {
+          enabled: getEffectiveEnabled(resubConfig?.enabled, "RESUB_THANK_YOU_ENABLED"),
+          message: resubConfig?.message || "hype Welcome back to Kandyland, {user}! kandyKiss"
         },
-        giftSub: config.subscriptionMessages?.giftSub || {
-          enabled: null,
-          messageSingle: "Thank you for gifting to {recipient}, {user}! kandyHype",
-          messageMultiple: "Thank you for gifting to {recipient_count} users, {user}! kandyHype"
+        giftSub: {
+          enabled: getEffectiveEnabled(giftSubConfig?.enabled, "GIFT_SUB_THANK_YOU_ENABLED"),
+          messageSingle: giftSubConfig?.messageSingle || "Thank you for gifting to {recipient}, {user}! kandyHype",
+          messageMultiple: giftSubConfig?.messageMultiple || "Thank you for gifting to {recipient_count} users, {user}! kandyHype"
         },
         availableTags: {
           all: ["user", "tier", "channel"],
