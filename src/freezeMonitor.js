@@ -9,10 +9,22 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Create a timeout-based promise that resolves after specified seconds
+ * Used as fallback when EventSub is not available
+ */
+function createPollingWait(seconds, logger) {
+  return () => {
+    logger?.log(`Freeze monitor: polling mode - waiting ${seconds}s before retry`);
+    return sleep(seconds * 1000);
+  };
+}
+
 function runFfmpeg(args, timeoutMs) {
   return new Promise((resolve, reject) => {
     const child = spawn("ffmpeg", args, { windowsHide: true });
     let timedOut = false;
+    let settled = false;
 
     const timeout = setTimeout(() => {
       timedOut = true;
@@ -21,11 +33,15 @@ function runFfmpeg(args, timeoutMs) {
 
     child.on("error", (error) => {
       clearTimeout(timeout);
+      if (settled) return;
+      settled = true;
       reject(error);
     });
 
     child.on("close", (code) => {
       clearTimeout(timeout);
+      if (settled) return;
+      settled = true;
       if (timedOut) {
         reject(new Error("ffmpeg timed out"));
         return;
@@ -153,7 +169,15 @@ export async function startFreezeMonitor(
     env.FREEZE_OFFLINE_BACKOFF_SECONDS,
     30
   );
+  // Polling interval when EventSub is disabled (default: 60 seconds)
+  const pollWhenOfflineSeconds = parseIntEnv(
+    env.FREEZE_POLL_WHEN_OFFLINE_SECONDS,
+    60
+  );
   let nextRefreshAt = 0;
+
+  // If no waitForOnline provided, use polling-based recovery
+  const effectiveWaitForOnline = waitForOnline || createPollingWait(pollWhenOfflineSeconds, logger);
 
   const sampleSeconds = parseIntEnv(env.FREEZE_SAMPLE_SECONDS, 5);
   const thresholdSeconds = parseIntEnv(env.FREEZE_THRESHOLD_SECONDS, 20);
@@ -203,6 +227,11 @@ export async function startFreezeMonitor(
       consecutiveFailures = 0;
       if (offline) {
         offline = false;
+        // Reset freeze state when coming back online
+        frozen = false;
+        motionFrames = 0;
+        lastHash = null;
+        lastChangeAt = Date.now();
         onOnline?.();
       }
 
@@ -245,17 +274,21 @@ export async function startFreezeMonitor(
       }
     }
 
-    if (offline && waitForOnline) {
-      logger?.log("Freeze monitor: waiting for EventSub online signal");
-      await waitForOnline();
-      logger?.log("Freeze monitor: received online signal, resuming");
+    if (offline) {
+      // Use effectiveWaitForOnline which handles both EventSub and polling modes
+      if (waitForOnline) {
+        logger?.log("Freeze monitor: waiting for EventSub online signal");
+      }
+      await effectiveWaitForOnline();
+      if (waitForOnline) {
+        logger?.log("Freeze monitor: received online signal, resuming");
+      }
       // Reset HLS URL so it gets re-fetched on next iteration
       hlsUrl = env.FREEZE_HLS_URL || null;
       nextRefreshAt = 0;
       await sleep(sampleSeconds * 1000);
     } else {
-      const delaySeconds = offline ? offlineBackoffSeconds : sampleSeconds;
-      await sleep(delaySeconds * 1000);
+      await sleep(sampleSeconds * 1000);
     }
   }
 }
