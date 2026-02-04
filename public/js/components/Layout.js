@@ -40,7 +40,7 @@ function Sidebar() {
     <aside class="sidebar">
       <div class="sidebar-header">
         <div class="sidebar-logo">
-          <span>🍬</span>
+          <span>🌸</span>
           <span>Kandy Chat</span>
         </div>
       </div>

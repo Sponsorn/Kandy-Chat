@@ -54,8 +54,10 @@ function ChatMessage({ message, onModAction }) {
   `;
 }
 
-export function ChatFeed() {
-  const messageList = messages.value;
+export function ChatFeed({ channel = null }) {
+  const messageList = channel
+    ? messages.value.filter(m => m.twitchChannel?.toLowerCase() === channel.toLowerCase())
+    : messages.value;
 
   if (messageList.length === 0) {
     return html`

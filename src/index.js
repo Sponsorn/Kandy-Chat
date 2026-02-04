@@ -222,14 +222,14 @@ async function start() {
 
       if (type === "stream.online") {
         console.log(`${broadcasterName} went live on Twitch`);
-        botState.setStreamStatus("online");
+        botState.setStreamStatus(broadcasterName.toLowerCase(), "online");
         const freezeChannel = process.env.FREEZE_CHANNEL?.toLowerCase();
         if (freezeChannel && broadcasterName.toLowerCase() === freezeChannel) {
           freezeOnlineSignal();
         }
       } else if (type === "stream.offline") {
         console.log(`${broadcasterName} went offline on Twitch`);
-        botState.setStreamStatus("offline");
+        botState.setStreamStatus(broadcasterName.toLowerCase(), "offline");
 
         const offlineAlertChannels = process.env.OFFLINE_ALERT_CHANNELS
           ?.split(",").map(c => c.trim().toLowerCase()).filter(Boolean);
@@ -270,11 +270,12 @@ async function start() {
     freezeEnv.FREEZE_OAUTH_BEARER = accessToken;
   }
 
+  const freezeChannelName = process.env.FREEZE_CHANNEL?.toLowerCase() || null;
   startFreezeMonitor(freezeEnv, {
     logger: console,
     waitForOnline: webServer ? freezeWaitForOnline : undefined,
     onFreeze: () => {
-      botState.setStreamStatus("frozen");
+      botState.setStreamStatus(freezeChannelName, "frozen");
       const mention = FREEZE_ALERT_ROLE_ID ? `<@&${FREEZE_ALERT_ROLE_ID}> ` : "";
       const channel = process.env.FREEZE_CHANNEL || "Stream";
       relaySystemMessage(`${mention}${channel} appears frozen`, DISCORD_CHANNEL_ID).catch(error => {
@@ -282,21 +283,21 @@ async function start() {
       });
     },
     onRecover: () => {
-      botState.setStreamStatus("online");
+      botState.setStreamStatus(freezeChannelName, "online");
       const channel = process.env.FREEZE_CHANNEL || "Stream";
       relaySystemMessage(`${channel} motion detected again`, DISCORD_CHANNEL_ID).catch(error => {
         console.error("Failed to send recovery alert", error);
       });
     },
     onOffline: () => {
-      botState.setStreamStatus("offline");
+      botState.setStreamStatus(freezeChannelName, "offline");
       const channel = process.env.FREEZE_CHANNEL || "Stream";
       relaySystemMessage(`${channel} appears offline`, DISCORD_CHANNEL_ID).catch(error => {
         console.error("Failed to send offline alert", error);
       });
     },
     onOnline: () => {
-      botState.setStreamStatus("online");
+      botState.setStreamStatus(freezeChannelName, "online");
       const channel = process.env.FREEZE_CHANNEL || "Stream";
       relaySystemMessage(`${channel} appears online`, DISCORD_CHANNEL_ID).catch(error => {
         console.error("Failed to send online alert", error);

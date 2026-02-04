@@ -54,8 +54,10 @@ class BotState extends EventEmitter {
       messagesFiltered: 0,
       moderationActions: 0,
       lastMessageTime: null,
-      streamStatus: "unknown", // "online", "offline", "frozen", "unknown"
-      freezeDetectedAt: null
+      streamStatus: "unknown", // Legacy: "online", "offline", "frozen", "unknown"
+      freezeDetectedAt: null,
+      streamStatusByChannel: {}, // { "kandyland": "online", "kandylandvods": "offline" }
+      freezeDetectedByChannel: {} // { "kandyland": null, "kandylandvods": 1234567890 }
     };
 
     // Audit log for admin actions
@@ -249,17 +251,43 @@ class BotState extends EventEmitter {
   }
 
   /**
-   * Update stream status
+   * Update stream status for a specific channel
+   * @param {string} channel - Twitch channel name (lowercase)
+   * @param {string} status - Status: "online", "offline", "frozen", "unknown"
    */
-  setStreamStatus(status) {
-    const prevStatus = this.metrics.streamStatus;
+  setStreamStatus(channel, status) {
+    if (!channel) {
+      // Legacy fallback: update global status
+      const prevStatus = this.metrics.streamStatus;
+      this.metrics.streamStatus = status;
+      if (status === "frozen") {
+        this.metrics.freezeDetectedAt = Date.now();
+      } else if (prevStatus === "frozen") {
+        this.metrics.freezeDetectedAt = null;
+      }
+      this.emit("stream:status", { status, prevStatus });
+      return;
+    }
+
+    const channelLower = channel.toLowerCase();
+    const prevStatus = this.metrics.streamStatusByChannel[channelLower];
+    this.metrics.streamStatusByChannel[channelLower] = status;
+
+    if (status === "frozen") {
+      this.metrics.freezeDetectedByChannel[channelLower] = Date.now();
+    } else if (prevStatus === "frozen") {
+      this.metrics.freezeDetectedByChannel[channelLower] = null;
+    }
+
+    // Also update legacy global status for backwards compatibility
     this.metrics.streamStatus = status;
     if (status === "frozen") {
       this.metrics.freezeDetectedAt = Date.now();
     } else if (prevStatus === "frozen") {
       this.metrics.freezeDetectedAt = null;
     }
-    this.emit("stream:status", { status, prevStatus });
+
+    this.emit("stream:status", { channel: channelLower, status, prevStatus });
   }
 
   /**

@@ -19,9 +19,12 @@ export const botStatus = signal({
   connections: { discord: false, twitch: false }
 });
 
-// Stream status
-export const streamStatus = signal("unknown");
-export const freezeDetectedAt = signal(null);
+// Stream status (per-channel)
+export const streamStatus = signal({});  // { "kandyland": "online", "kandylandvods": "offline" }
+export const freezeDetectedAt = signal({});  // { "kandyland": null, "kandylandvods": 1234567890 }
+
+// Twitch channels list
+export const twitchChannels = signal([]);
 
 // Metrics
 export const metrics = signal({
@@ -99,9 +102,25 @@ export function updateFromWs(data) {
     if (status.metrics) {
       metrics.value = status.metrics;
     }
-    if (status.metrics?.streamStatus) {
-      streamStatus.value = status.metrics.streamStatus;
-      freezeDetectedAt.value = status.metrics.freezeDetectedAt;
+    // Handle per-channel stream status
+    if (status.metrics?.streamStatusByChannel) {
+      streamStatus.value = { ...status.metrics.streamStatusByChannel };
+      freezeDetectedAt.value = { ...status.metrics.freezeDetectedByChannel };
+    } else if (status.metrics?.streamStatus) {
+      // Backwards compatibility: single status maps to all channels
+      const channels = status.channels?.twitch || [];
+      const statusObj = {};
+      const freezeObj = {};
+      for (const ch of channels) {
+        statusObj[ch] = status.metrics.streamStatus;
+        freezeObj[ch] = status.metrics.freezeDetectedAt;
+      }
+      streamStatus.value = statusObj;
+      freezeDetectedAt.value = freezeObj;
+    }
+    // Store twitch channels list
+    if (status.channels?.twitch) {
+      twitchChannels.value = status.channels.twitch;
     }
     dispatchStatusUpdate();
   } else if (data.type === "message:relay") {
@@ -109,11 +128,26 @@ export function updateFromWs(data) {
   } else if (data.type === "mod:action") {
     addModAction(data.data);
   } else if (data.type === "stream:status") {
-    streamStatus.value = data.data.status;
-    if (data.data.status === "frozen") {
-      freezeDetectedAt.value = Date.now();
+    const { channel, status } = data.data;
+    if (channel) {
+      // Per-channel status update
+      streamStatus.value = { ...streamStatus.value, [channel]: status };
+      if (status === "frozen") {
+        freezeDetectedAt.value = { ...freezeDetectedAt.value, [channel]: Date.now() };
+      } else {
+        freezeDetectedAt.value = { ...freezeDetectedAt.value, [channel]: null };
+      }
     } else {
-      freezeDetectedAt.value = null;
+      // Legacy: update all channels with same status
+      const channels = twitchChannels.value || [];
+      const statusObj = { ...streamStatus.value };
+      const freezeObj = { ...freezeDetectedAt.value };
+      for (const ch of channels) {
+        statusObj[ch] = status;
+        freezeObj[ch] = status === "frozen" ? Date.now() : null;
+      }
+      streamStatus.value = statusObj;
+      freezeDetectedAt.value = freezeObj;
     }
     dispatchStatusUpdate();
   } else if (data.type === "config:update") {

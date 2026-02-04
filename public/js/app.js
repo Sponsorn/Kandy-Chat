@@ -1,7 +1,7 @@
 import { render } from "preact";
 import { html } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
-import { user, currentRoute, canModerate, canAdmin } from "./state.js";
+import { user, currentRoute, canModerate, canAdmin, twitchChannels } from "./state.js";
 import { auth } from "./api.js";
 import { connect, disconnect } from "./websocket.js";
 
@@ -15,9 +15,29 @@ import { BlacklistEditor } from "./components/BlacklistEditor.js";
 import { ConfigPanel } from "./components/ConfigPanel.js";
 import { ControlPanel } from "./components/ControlPanel.js";
 import { AuditLog } from "./components/AuditLog.js";
+import { ChannelColumn } from "./components/ChannelColumn.js";
+
+// Utility to format channel display name
+function formatChannelName(channel) {
+  if (!channel) return channel;
+  return channel.charAt(0).toUpperCase() + channel.slice(1);
+}
 
 // Pages
 function HomePage() {
+  const [channels, setChannels] = useState(twitchChannels.value);
+
+  useEffect(() => {
+    setChannels([...twitchChannels.value]);
+
+    const handleStatusUpdate = () => {
+      setChannels([...twitchChannels.value]);
+    };
+
+    window.addEventListener("app:status-update", handleStatusUpdate);
+    return () => window.removeEventListener("app:status-update", handleStatusUpdate);
+  }, []);
+
   return html`
     <div>
       <header class="page-header">
@@ -25,7 +45,19 @@ function HomePage() {
         <p class="page-subtitle">Overview of bot status and activity</p>
       </header>
       <${StatusGrid} />
-      <${ChatFeed} />
+      ${channels.length > 0 ? html`
+        <div class="channel-columns">
+          ${channels.map(channel => html`
+            <${ChannelColumn}
+              key=${channel}
+              channel=${channel}
+              displayName=${formatChannelName(channel)}
+            />
+          `)}
+        </div>
+      ` : html`
+        <${ChatFeed} />
+      `}
     </div>
   `;
 }
