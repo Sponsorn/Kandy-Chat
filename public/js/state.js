@@ -120,6 +120,7 @@ async function fetchBlacklist() {
       const data = await response.json();
       blacklistWords.value = data.words || [];
       blacklistRegex.value = data.regex || [];
+      window.dispatchEvent(new CustomEvent("app:blacklist-update"));
     }
   } catch (error) {
     console.error("Failed to fetch blacklist:", error);

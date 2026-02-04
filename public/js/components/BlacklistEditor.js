@@ -38,9 +38,19 @@ export function BlacklistEditor() {
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  const [words, setWords] = useState(blacklistWords.value);
+  const [regexes, setRegexes] = useState(blacklistRegex.value);
 
   useEffect(() => {
     fetchBlacklist();
+
+    const handleUpdate = () => {
+      setWords([...blacklistWords.value]);
+      setRegexes([...blacklistRegex.value]);
+    };
+
+    window.addEventListener("app:blacklist-update", handleUpdate);
+    return () => window.removeEventListener("app:blacklist-update", handleUpdate);
   }, []);
 
   const handleAdd = async (e) => {
@@ -84,8 +94,6 @@ export function BlacklistEditor() {
     }
   };
 
-  const words = blacklistWords.value;
-  const regexes = blacklistRegex.value;
   const total = words.length + regexes.length;
 
   return html`
