@@ -56,7 +56,8 @@ function ToggleSwitch({ label, checked, onChange, disabled = false, description 
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: checked ? "var(--accent-color)" : "var(--bg-tertiary)",
+            backgroundColor: checked ? "var(--accent-primary)" : "var(--bg-hover)",
+            border: checked ? "none" : "2px solid var(--border-color)",
             transition: "0.3s",
             borderRadius: "26px",
             opacity: disabled ? 0.5 : 1
@@ -325,7 +326,7 @@ export function ConfigPanel() {
               disabled=${saving}
               style=${{
                 padding: "0.5rem 1rem",
-                backgroundColor: "var(--accent-color)",
+                backgroundColor: "var(--accent-primary)",
                 color: "white",
                 border: "none",
                 borderRadius: "4px",
@@ -426,7 +427,7 @@ export function ConfigPanel() {
               disabled=${saving}
               style=${{
                 padding: "0.5rem 1rem",
-                backgroundColor: "var(--accent-color)",
+                backgroundColor: "var(--accent-primary)",
                 color: "white",
                 border: "none",
                 borderRadius: "4px",

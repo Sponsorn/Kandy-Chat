@@ -10,6 +10,7 @@
   --text-muted: #666;
   --accent-primary: #9146ff;
   --accent-secondary: #772ce8;
+  --accent-color: var(--accent-primary); /* Alias for JS compatibility */
   --success: #00c853;
   --warning: #ffab00;
   --error: #ff5252;
@@ -160,6 +161,8 @@ html, body {
   padding: 1.5rem;
   overflow-y: auto;
   max-height: 100vh;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
 .page-header {
