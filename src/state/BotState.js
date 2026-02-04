@@ -488,7 +488,7 @@ class BotState extends EventEmitter {
       },
       connections: {
         discord: !!this.discordClient?.isReady(),
-        twitch: !!this.twitchClient?.readyState() === "OPEN"
+        twitch: this.twitchClient?.readyState() === "OPEN"
       },
       blacklistCount: this.runtimeBlacklist.size,
       relayMapSize: this.relayMessageMap.size,
