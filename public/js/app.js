@@ -160,8 +160,8 @@ function App() {
     auth.getMe()
       .then(data => {
         if (data.authenticated) {
-          user.value = data.user;
-          user.value.permission = data.permission;
+          // Set user with permission in a single signal update
+          user.value = { ...data.user, permission: data.permission };
           // Connect WebSocket after authentication
           connect();
         } else {
