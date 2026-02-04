@@ -132,9 +132,7 @@ function NotFoundPage() {
 }
 
 // Router
-function Router() {
-  const route = currentRoute.value;
-
+function Router({ route }) {
   switch (route) {
     case "/":
       return html`<${HomePage} />`;
@@ -157,6 +155,7 @@ function Router() {
 function App() {
   const [authChecked, setAuthChecked] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
+  const [route, setRoute] = useState(window.location.pathname);
 
   useEffect(() => {
     // Check authentication on mount
@@ -187,6 +186,24 @@ function App() {
     };
   }, []);
 
+  // Handle navigation
+  useEffect(() => {
+    const handleNav = (e) => {
+      setRoute(e.detail || window.location.pathname);
+    };
+    const handlePopState = () => {
+      setRoute(window.location.pathname);
+    };
+
+    window.addEventListener("app:navigate", handleNav);
+    window.addEventListener("popstate", handlePopState);
+
+    return () => {
+      window.removeEventListener("app:navigate", handleNav);
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, []);
+
   // Show loading while checking auth
   if (!authChecked) {
     return html`<div class="loading">Loading...</div>`;
@@ -200,7 +217,7 @@ function App() {
   // Show main app with layout
   return html`
     <${Layout}>
-      <${Router} />
+      <${Router} route=${route} />
     <//>
   `;
 }

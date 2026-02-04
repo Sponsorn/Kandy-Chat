@@ -62,6 +62,8 @@ export const currentRoute = signal(window.location.pathname);
 export function navigate(path) {
   window.history.pushState({}, "", path);
   currentRoute.value = path;
+  // Dispatch event for App component to handle
+  window.dispatchEvent(new CustomEvent("app:navigate", { detail: path }));
 }
 
 // Initialize route handling
