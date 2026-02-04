@@ -17,7 +17,14 @@ export function StatusGrid() {
   const [stats, setStats] = useState(metrics.value);
   const [frozenAt, setFrozenAt] = useState(freezeDetectedAt.value);
 
+  // Sync state from signals on mount and when signals change
   useEffect(() => {
+    // Initialize with current signal values on mount
+    setStatus({ ...botStatus.value });
+    setStream(streamStatus.value);
+    setStats({ ...metrics.value });
+    setFrozenAt(freezeDetectedAt.value);
+
     const handleStatusUpdate = () => {
       setStatus({ ...botStatus.value });
       setStream(streamStatus.value);

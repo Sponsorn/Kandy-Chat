@@ -23,20 +23,15 @@ export function createDashboardSocket(server) {
     const sessionId = sessionMatch ? sessionMatch[1] : null;
     const session = getSession(sessionId);
 
-    // Reject connections without at least MODERATOR permission
+    // Determine permission level (allow VIEWER connections with limited data)
     const permission = session?.permission ?? Permissions.VIEWER;
-    if (permission < Permissions.MODERATOR) {
-      console.log(`WebSocket connection rejected (permission: ${permission})`);
-      ws.close(4403, "Access denied");
-      return;
-    }
 
     // Store client info
     const clientInfo = {
       ws,
       session,
       permission,
-      subscribedEvents: new Set(["stream:status"]) // Default subscriptions
+      subscribedEvents: new Set(["stream:status", "status:update"]) // Default subscriptions for all users
     };
     clients.set(ws, clientInfo);
 

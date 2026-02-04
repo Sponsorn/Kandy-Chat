@@ -34,10 +34,13 @@ function ConfigItem({ label, value }) {
 }
 
 function ToggleSwitch({ label, checked, onChange, disabled = false, description = null }) {
+  // When disabled, always show toggle in "off" position with muted styling
+  const effectiveChecked = disabled ? false : checked;
+
   return html`
     <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid var(--border-color);">
       <div>
-        <span style="color: var(--text-primary);">${label}</span>
+        <span style=${{ color: disabled ? "var(--text-muted)" : "var(--text-primary)" }}>${label}</span>
         ${description && html`<p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0.25rem 0 0 0;">${description}</p>`}
       </div>
       <label class="toggle-switch" style="position: relative; display: inline-block; width: 48px; height: 26px;">
@@ -56,11 +59,10 @@ function ToggleSwitch({ label, checked, onChange, disabled = false, description 
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: checked ? "var(--accent-primary)" : "var(--bg-hover)",
-            border: checked ? "none" : "2px solid var(--border-color)",
+            backgroundColor: disabled ? "var(--bg-tertiary)" : (effectiveChecked ? "var(--accent-primary)" : "var(--bg-hover)"),
+            border: disabled ? "1px solid var(--border-color)" : (effectiveChecked ? "none" : "2px solid var(--border-color)"),
             transition: "0.3s",
-            borderRadius: "26px",
-            opacity: disabled ? 0.5 : 1
+            borderRadius: "26px"
           }}
         >
           <span
@@ -69,9 +71,9 @@ function ToggleSwitch({ label, checked, onChange, disabled = false, description 
               content: "",
               height: "20px",
               width: "20px",
-              left: checked ? "25px" : "3px",
-              bottom: "3px",
-              backgroundColor: "white",
+              left: effectiveChecked ? "25px" : "3px",
+              bottom: disabled ? "2px" : "3px",
+              backgroundColor: disabled ? "var(--text-muted)" : "white",
               transition: "0.3s",
               borderRadius: "50%"
             }}
@@ -189,16 +191,34 @@ export function ConfigPanel() {
   }, []);
 
   useEffect(() => {
-    loadAllConfig();
+    let mounted = true;
+
+    const doLoad = async () => {
+      if (mounted) {
+        await loadAllConfig();
+      }
+    };
+    doLoad();
+
+    return () => {
+      mounted = false;
+    };
   }, [loadAllConfig]);
 
   // Handle WebSocket config updates
   useEffect(() => {
+    let mounted = true;
+
     const handleConfigUpdate = () => {
-      loadAllConfig();
+      if (mounted) {
+        loadAllConfig();
+      }
     };
     window.addEventListener("app:config-update", handleConfigUpdate);
-    return () => window.removeEventListener("app:config-update", handleConfigUpdate);
+    return () => {
+      mounted = false;
+      window.removeEventListener("app:config-update", handleConfigUpdate);
+    };
   }, [loadAllConfig]);
 
   const handleFilterChange = (key, value) => {

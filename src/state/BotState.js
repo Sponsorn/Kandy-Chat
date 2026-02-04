@@ -382,6 +382,8 @@ class BotState extends EventEmitter {
         this.filters.blockCommands = value;
       } else if (key === "blockEmotes" && value !== null) {
         this.filters.blockEmotes = value;
+      } else if (key === "suspiciousFlagEnabled" && value !== null) {
+        this.filters.suspiciousFlagEnabled = value;
       }
     }
 
