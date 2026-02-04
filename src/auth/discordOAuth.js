@@ -2,8 +2,10 @@ import crypto from "node:crypto";
 import {
   createSession,
   setSessionPermission,
+  destroySession,
   determineDiscordPermission,
-  createSessionCookie
+  createSessionCookie,
+  Permissions
 } from "./sessionManager.js";
 
 const DISCORD_API_BASE = "https://discord.com/api/v10";
@@ -213,6 +215,13 @@ export function createDiscordAuthRoutes(router, config) {
 
       // Determine permission level
       const permission = determineDiscordPermission(userData, adminRoleIds, modRoleIds);
+
+      // Reject users without at least MODERATOR permission
+      if (permission < Permissions.MODERATOR) {
+        destroySession(sessionId);
+        return res.redirect("/?error=access_denied");
+      }
+
       setSessionPermission(sessionId, permission);
 
       // Set session cookie

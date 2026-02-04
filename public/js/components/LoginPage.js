@@ -11,7 +11,8 @@ export function LoginPage() {
     invalid_state: "Invalid authentication state. Please try again.",
     no_code: "Authentication code not received. Please try again.",
     auth_failed: "Authentication failed. Please try again.",
-    session_expired: "Your session has expired. Please log in again."
+    session_expired: "Your session has expired. Please log in again.",
+    access_denied: "Access denied. You must be a moderator or admin to use this dashboard."
   };
 
   return html`

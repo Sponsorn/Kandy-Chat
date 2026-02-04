@@ -2,8 +2,10 @@ import crypto from "node:crypto";
 import {
   createSession,
   setSessionPermission,
+  destroySession,
   determineTwitchPermission,
-  createSessionCookie
+  createSessionCookie,
+  Permissions
 } from "./sessionManager.js";
 
 const TWITCH_OAUTH_AUTHORIZE = "https://id.twitch.tv/oauth2/authorize";
@@ -226,6 +228,13 @@ export function createTwitchAuthRoutes(router, config) {
 
       // Determine permission level based on moderator status
       const permission = determineTwitchPermission(userData, modChannels, configuredChannels || []);
+
+      // Reject users without at least MODERATOR permission
+      if (permission < Permissions.MODERATOR) {
+        destroySession(sessionId);
+        return res.redirect("/?error=access_denied");
+      }
+
       setSessionPermission(sessionId, permission);
 
       // Set session cookie

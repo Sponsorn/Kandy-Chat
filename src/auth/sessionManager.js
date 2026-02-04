@@ -128,19 +128,29 @@ export function determineDiscordPermission(userData, adminRoleIds, modRoleIds) {
 }
 
 /**
- * Determine permission level from Twitch moderator status
- * @param {Object} userData - User data
+ * Determine permission level from Twitch moderator/broadcaster status
+ * @param {Object} userData - User data with username
  * @param {Array} modChannels - Array of channels where user is mod
  * @param {Array} configChannels - Array of configured channels
  */
 export function determineTwitchPermission(userData, modChannels, configChannels) {
-  if (!modChannels?.length || !configChannels?.length) return Permissions.VIEWER;
+  if (!configChannels?.length) return Permissions.VIEWER;
 
-  const modSet = new Set(modChannels.map(c => c.toLowerCase()));
-  const isModInConfigChannel = configChannels.some(c => modSet.has(c.toLowerCase()));
+  const username = userData?.username?.toLowerCase();
+  const configSet = new Set(configChannels.map(c => c.toLowerCase()));
 
-  if (isModInConfigChannel) {
-    return Permissions.MODERATOR;
+  // Broadcaster (channel owner) gets ADMIN
+  if (username && configSet.has(username)) {
+    return Permissions.ADMIN;
+  }
+
+  // Moderator in configured channel gets MODERATOR
+  if (modChannels?.length) {
+    const modSet = new Set(modChannels.map(c => c.toLowerCase()));
+    const isModInConfigChannel = configChannels.some(c => modSet.has(c.toLowerCase()));
+    if (isModInConfigChannel) {
+      return Permissions.MODERATOR;
+    }
   }
 
   return Permissions.VIEWER;

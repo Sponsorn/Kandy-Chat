@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { join } from "node:path";
 import { parseBool } from "../envUtils.js";
-import { sessionMiddleware, startSessionCleanup, destroySession, createLogoutCookie, Permissions } from "../auth/sessionManager.js";
+import { sessionMiddleware, startSessionCleanup, destroySession, createLogoutCookie, Permissions, requireAuth } from "../auth/sessionManager.js";
 import { createDiscordAuthRoutes } from "../auth/discordOAuth.js";
 import { createTwitchAuthRoutes } from "../auth/twitchOAuth.js";
 import { createMonitoringRoutes } from "./routes/monitoringRoutes.js";
@@ -219,7 +219,8 @@ export async function startWebServer(env, options = {}) {
       res.json({ success: true });
     });
 
-    // API routes
+    // API routes - require at least MODERATOR permission
+    app.use("/api", requireAuth(Permissions.MODERATOR));
     app.use(createMonitoringRoutes());
     app.use(createConfigRoutes({ updateBlacklistFromEntries }));
     app.use(createControlRoutes({ twitchAPIClient }));
