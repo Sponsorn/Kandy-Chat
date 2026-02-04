@@ -1,7 +1,7 @@
 import { render } from "preact";
 import { html } from "htm/preact";
-import { useEffect } from "preact/hooks";
-import { user, isAuthenticated, currentRoute, canModerate, canAdmin } from "./state.js";
+import { useEffect, useState } from "preact/hooks";
+import { user, currentRoute, canModerate, canAdmin } from "./state.js";
 import { auth } from "./api.js";
 import { connect, disconnect } from "./websocket.js";
 
@@ -155,6 +155,9 @@ function Router() {
 
 // Main App component
 function App() {
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authenticated, setAuthenticated] = useState(false);
+
   useEffect(() => {
     // Check authentication on mount
     auth.getMe()
@@ -162,15 +165,20 @@ function App() {
         if (data.authenticated) {
           // Set user with permission in a single signal update
           user.value = { ...data.user, permission: data.permission };
+          setAuthenticated(true);
           // Connect WebSocket after authentication
           connect();
         } else {
           user.value = null;
+          setAuthenticated(false);
         }
+        setAuthChecked(true);
       })
       .catch(err => {
         console.error("Auth check failed:", err);
         user.value = null;
+        setAuthenticated(false);
+        setAuthChecked(true);
       });
 
     // Cleanup WebSocket on unmount
@@ -179,8 +187,13 @@ function App() {
     };
   }, []);
 
+  // Show loading while checking auth
+  if (!authChecked) {
+    return html`<div class="loading">Loading...</div>`;
+  }
+
   // Show login page if not authenticated
-  if (!isAuthenticated.value) {
+  if (!authenticated) {
     return html`<${LoginPage} />`;
   }
 
