@@ -350,15 +350,18 @@ export class TwitchAPIClient {
     const accessToken = await this.getAccessToken();
     const results = new Map();
 
+    // Normalize logins - strip # prefix if present (tmi.js mutates channel arrays)
+    const normalizedLogins = logins.map(l => l.replace(/^#/, "").toLowerCase());
+
     // Initialize all as offline
-    for (const login of logins) {
-      results.set(login.toLowerCase(), { live: false });
+    for (const login of normalizedLogins) {
+      results.set(login, { live: false });
     }
 
     // Twitch allows up to 100 user_login params per request
     const batchSize = 100;
-    for (let i = 0; i < logins.length; i += batchSize) {
-      const batch = logins.slice(i, i + batchSize);
+    for (let i = 0; i < normalizedLogins.length; i += batchSize) {
+      const batch = normalizedLogins.slice(i, i + batchSize);
       const params = batch.map(l => `user_login=${encodeURIComponent(l)}`).join("&");
 
       const response = await fetchWithTimeout(
