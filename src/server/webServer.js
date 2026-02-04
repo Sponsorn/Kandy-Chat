@@ -158,7 +158,7 @@ export async function startWebServer(env, options = {}) {
     app.use("/auth", rateLimit(20, 60000));
 
     // Auth routes
-    const dashboardDomain = env.DASHBOARD_DOMAIN || null;
+    const dashboardDomain = env.DASHBOARD_DOMAIN?.trim() || null;
     const cookieSecure = env.NODE_ENV !== "development";
 
     // Discord OAuth
@@ -191,6 +191,10 @@ export async function startWebServer(env, options = {}) {
 
     // Auth info and logout
     app.get("/auth/me", (req, res) => {
+      // Prevent caching - auth state changes with login/logout
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+
       if (!req.session) {
         return res.json({ authenticated: false });
       }
