@@ -482,7 +482,8 @@ class BotState extends EventEmitter {
       metrics: { ...this.metrics },
       config: { ...this.config },
       channels: {
-        twitch: [...this.twitchChannels],
+        // Strip # prefix that tmi.js adds to channel names
+        twitch: this.twitchChannels.map(ch => ch.replace(/^#/, "")),
         relayFilter: this.relayChannels ? [...this.relayChannels] : null,
         mapping: Object.fromEntries(this.channelMapping)
       },
