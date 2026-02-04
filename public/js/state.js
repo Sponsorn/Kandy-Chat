@@ -71,6 +71,11 @@ window.addEventListener("popstate", () => {
   currentRoute.value = window.location.pathname;
 });
 
+// Dispatch status update event for components
+function dispatchStatusUpdate() {
+  window.dispatchEvent(new CustomEvent("app:status-update"));
+}
+
 // Update status from WebSocket
 export function updateFromWs(data) {
   if (data.type === "init" || data.type === "status:update") {
@@ -88,6 +93,7 @@ export function updateFromWs(data) {
       streamStatus.value = status.metrics.streamStatus;
       freezeDetectedAt.value = status.metrics.freezeDetectedAt;
     }
+    dispatchStatusUpdate();
   } else if (data.type === "message:relay") {
     addMessage(data.data);
   } else if (data.type === "mod:action") {
@@ -99,6 +105,7 @@ export function updateFromWs(data) {
     } else {
       freezeDetectedAt.value = null;
     }
+    dispatchStatusUpdate();
   } else if (data.type === "config:update" && data.data.type === "blacklist") {
     // Refresh blacklist on update
     fetchBlacklist();

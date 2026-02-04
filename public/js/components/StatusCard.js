@@ -1,4 +1,5 @@
 import { html } from "htm/preact";
+import { useState, useEffect } from "preact/hooks";
 import { botStatus, streamStatus, metrics, freezeDetectedAt } from "../state.js";
 
 export function StatusCard({ label, value, className = "" }) {
@@ -11,9 +12,22 @@ export function StatusCard({ label, value, className = "" }) {
 }
 
 export function StatusGrid() {
-  const status = botStatus.value;
-  const stream = streamStatus.value;
-  const stats = metrics.value;
+  const [status, setStatus] = useState(botStatus.value);
+  const [stream, setStream] = useState(streamStatus.value);
+  const [stats, setStats] = useState(metrics.value);
+  const [frozenAt, setFrozenAt] = useState(freezeDetectedAt.value);
+
+  useEffect(() => {
+    const handleStatusUpdate = () => {
+      setStatus({ ...botStatus.value });
+      setStream(streamStatus.value);
+      setStats({ ...metrics.value });
+      setFrozenAt(freezeDetectedAt.value);
+    };
+
+    window.addEventListener("app:status-update", handleStatusUpdate);
+    return () => window.removeEventListener("app:status-update", handleStatusUpdate);
+  }, []);
 
   const formatUptime = () => {
     return status.uptimeString || "Unknown";
@@ -30,7 +44,6 @@ export function StatusGrid() {
     if (stream === "online") return "Online";
     if (stream === "offline") return "Offline";
     if (stream === "frozen") {
-      const frozenAt = freezeDetectedAt.value;
       if (frozenAt) {
         const seconds = Math.floor((Date.now() - frozenAt) / 1000);
         return `Frozen (${seconds}s)`;
