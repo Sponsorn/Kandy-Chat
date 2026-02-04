@@ -18,7 +18,7 @@ export function LoginPage() {
   return html`
     <div class="login-page">
       <div class="login-card">
-        <div style="font-size: 3rem; margin-bottom: 1rem;">🍬</div>
+        <div style="font-size: 3rem; margin-bottom: 1rem;">🌸</div>
         <h1 class="login-title">Kandy Chat Dashboard</h1>
         <p class="login-subtitle">Sign in to access the dashboard</p>
 
