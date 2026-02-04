@@ -340,4 +340,51 @@ export class TwitchAPIClient {
 
     return await addResponse.json();
   }
+
+  /**
+   * Get stream status for one or more channels
+   * @param {string[]} logins - Array of channel login names
+   * @returns {Promise<Map<string, {live: boolean, data?: object}>>} Map of login -> status
+   */
+  async getStreamStatus(logins) {
+    const accessToken = await this.getAccessToken();
+    const results = new Map();
+
+    // Initialize all as offline
+    for (const login of logins) {
+      results.set(login.toLowerCase(), { live: false });
+    }
+
+    // Twitch allows up to 100 user_login params per request
+    const batchSize = 100;
+    for (let i = 0; i < logins.length; i += batchSize) {
+      const batch = logins.slice(i, i + batchSize);
+      const params = batch.map(l => `user_login=${encodeURIComponent(l)}`).join("&");
+
+      const response = await fetchWithTimeout(
+        `https://api.twitch.tv/helix/streams?${params}`,
+        {
+          headers: {
+            "Authorization": `Bearer ${accessToken}`,
+            "Client-Id": this.clientId
+          }
+        }
+      );
+
+      if (!response.ok) {
+        console.error(`Failed to get stream status: ${response.status}`);
+        continue;
+      }
+
+      const data = await response.json();
+
+      // Streams endpoint only returns data for live channels
+      for (const stream of data.data || []) {
+        const login = stream.user_login.toLowerCase();
+        results.set(login, { live: true, data: stream });
+      }
+    }
+
+    return results;
+  }
 }

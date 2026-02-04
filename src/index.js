@@ -305,6 +305,17 @@ async function start() {
     }
   });
 
+  // Initialize stream status for all channels
+  try {
+    const streamStatuses = await twitchAPIClient.getStreamStatus(botState.twitchChannels);
+    for (const [channel, status] of streamStatuses) {
+      botState.setStreamStatus(channel, status.live ? "online" : "offline");
+      console.log(`Initial stream status for ${channel}: ${status.live ? "online" : "offline"}`);
+    }
+  } catch (error) {
+    console.error("Failed to initialize stream status:", error.message);
+  }
+
   // Schedule token refresh
   if (tokenInfo?.expiresIn) {
     scheduleTokenRefresh(tokenInfo.expiresIn, credentials, async (newTokenInfo) => {
