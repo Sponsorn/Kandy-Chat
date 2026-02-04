@@ -12,6 +12,23 @@ const DISCORD_API_BASE = "https://discord.com/api/v10";
 const DISCORD_OAUTH_AUTHORIZE = "https://discord.com/oauth2/authorize";
 const DISCORD_OAUTH_TOKEN = `${DISCORD_API_BASE}/oauth2/token`;
 
+/**
+ * Build Discord CDN avatar URL from user data
+ * @param {string} userId - Discord user ID
+ * @param {string|null} avatarHash - Avatar hash from Discord API
+ * @returns {string} Complete CDN URL for the avatar
+ */
+function buildAvatarUrl(userId, avatarHash) {
+  if (!avatarHash) {
+    // Default avatar based on user ID (Discord's new default avatar system)
+    const defaultIndex = (BigInt(userId) >> 22n) % 6n;
+    return `https://cdn.discordapp.com/embed/avatars/${defaultIndex}.png`;
+  }
+
+  const format = avatarHash.startsWith("a_") ? "gif" : "png";
+  return `https://cdn.discordapp.com/avatars/${userId}/${avatarHash}.${format}`;
+}
+
 // State store for CSRF protection
 const pendingStates = new Map();
 const STATE_TIMEOUT = 10 * 60 * 1000; // 10 minutes
@@ -204,7 +221,7 @@ export function createDiscordAuthRoutes(router, config) {
         id: user.id,
         username: user.username,
         discriminator: user.discriminator,
-        avatar: user.avatar,
+        avatar: buildAvatarUrl(user.id, user.avatar),
         roles,
         accessToken: tokens.access_token,
         refreshToken: tokens.refresh_token,
