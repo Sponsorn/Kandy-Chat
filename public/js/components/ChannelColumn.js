@@ -11,6 +11,7 @@ function formatTime(timestamp) {
 function ChatMessage({ message }) {
   const isSuspicious = message.suspicious || false;
   const isRelayed = message.relayed || false;
+  const isDeleted = message.deleted || false;
 
   // Support both old format (twitchChannel, twitchUsername) and new format (channel, username)
   const channel = message.twitchChannel || message.channel;
@@ -47,14 +48,14 @@ function ChatMessage({ message }) {
   };
 
   return html`
-    <div class="chat-message ${isSuspicious ? "suspicious" : ""} ${isRelayed ? "relayed" : ""}">
+    <div class="chat-message ${isSuspicious ? "suspicious" : ""} ${isRelayed ? "relayed" : ""} ${isDeleted ? "deleted" : ""}">
       <span class="chat-timestamp">${formatTime(message.timestamp)}</span>
       <div class="chat-content">
         <span class="chat-username" style="color: ${nameColor}">${username}</span>
         <span>: </span>
-        <span>${content}</span>
+        <span>${isDeleted ? html`<s>${content}</s>` : content}</span>
       </div>
-      ${canModerate.value && !isPrivileged && html`
+      ${canModerate.value && !isPrivileged && !isDeleted && html`
         <div class="chat-actions">
           <button class="btn-icon" title="Delete" onClick=${handleDelete}>🗑️</button>
           <button class="btn-icon" title="Timeout" onClick=${handleTimeout}>⏱️</button>

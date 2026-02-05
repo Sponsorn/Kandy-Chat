@@ -539,6 +539,22 @@ class BotState extends EventEmitter {
   }
 
   /**
+   * Mark a message as deleted in the chat buffer
+   * @param {string} messageId - The message ID to mark as deleted
+   * @returns {boolean} True if message was found and updated
+   */
+  markMessageDeleted(messageId) {
+    for (const msg of this.chatBuffer) {
+      if (msg.id === messageId) {
+        msg.deleted = true;
+        this.emit("chat:message-deleted", { id: messageId });
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Get recent chat messages
    * @param {string} channel - Optional channel filter
    * @param {number} limit - Maximum messages to return

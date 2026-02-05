@@ -59,6 +59,12 @@ export function setChatMessages(msgs) {
   chatMessages.value = msgs.slice(-MAX_CHAT_MESSAGES);
 }
 
+export function markChatMessageDeleted(messageId) {
+  chatMessages.value = chatMessages.value.map(msg =>
+    msg.id === messageId ? { ...msg, deleted: true } : msg
+  );
+}
+
 // Mod actions
 export const modActions = signal([]);
 const MAX_MOD_ACTIONS = 100;
@@ -181,6 +187,8 @@ export function updateFromWs(data) {
     addAuditEntry(data.data);
   } else if (data.type === "chat:message") {
     addChatMessage(data.data);
+  } else if (data.type === "chat:message-deleted") {
+    markChatMessageDeleted(data.data.id);
   }
 }
 

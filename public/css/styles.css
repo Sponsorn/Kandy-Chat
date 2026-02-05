@@ -270,6 +270,10 @@ html, body {
   opacity: 0.8;
 }
 
+.chat-message.deleted .chat-content {
+  opacity: 0.5;
+}
+
 .chat-timestamp {
   color: var(--text-muted);
   font-size: 0.75rem;

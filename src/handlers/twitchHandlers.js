@@ -278,6 +278,9 @@ async function handleTwitchMessageDeleted(channel, username, deletedMessage, use
 
   if (!targetId) return;
 
+  // Mark as deleted in chat feed
+  botState.markMessageDeleted(targetId);
+
   const record = botState.getRelayByTwitchId(targetId);
   if (!record) {
     console.log(`[${channel}] No relay mapping found for deleted message ${targetId}`);

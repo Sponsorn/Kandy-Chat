@@ -142,6 +142,10 @@ export function createDashboardSocket(server) {
     broadcast("chat:message", data, Permissions.VIEWER);
   });
 
+  botState.on("chat:message-deleted", (data) => {
+    broadcast("chat:message-deleted", data, Permissions.VIEWER);
+  });
+
   botState.on("mod:action", (data) => {
     broadcast("mod:action", data, Permissions.MODERATOR);
   });
