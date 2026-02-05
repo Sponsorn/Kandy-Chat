@@ -64,6 +64,9 @@ class BotState extends EventEmitter {
     this.auditLog = [];
     this.maxAuditLogEntries = 500;
 
+    // Offline message tracking for edit-on-recovery
+    this.offlineMessageIds = new Map(); // channel -> { messageId, channelId, originalContent }
+
     // Configuration cache
     this.config = {
       freezeAlertRoleId: null,
@@ -288,6 +291,27 @@ class BotState extends EventEmitter {
     }
 
     this.emit("stream:status", { channel: channelLower, status, prevStatus });
+  }
+
+  /**
+   * Store offline message info for later editing when stream comes back online
+   */
+  setOfflineMessage(channel, messageId, channelId, originalContent) {
+    this.offlineMessageIds.set(channel.toLowerCase(), { messageId, channelId, originalContent });
+  }
+
+  /**
+   * Get stored offline message info for a channel
+   */
+  getOfflineMessage(channel) {
+    return this.offlineMessageIds.get(channel.toLowerCase());
+  }
+
+  /**
+   * Clear stored offline message after editing
+   */
+  clearOfflineMessage(channel) {
+    this.offlineMessageIds.delete(channel.toLowerCase());
   }
 
   /**

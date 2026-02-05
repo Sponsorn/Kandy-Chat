@@ -215,7 +215,7 @@ async function start() {
     logger: console,
     twitchAPIClient,
     updateBlacklistFromEntries,
-    onEvent: (payload) => {
+    onEvent: async (payload) => {
       const type = payload?.subscription?.type || "unknown";
       const broadcasterName = payload?.event?.broadcaster_user_name || payload?.event?.broadcaster_user_login || "unknown";
       console.log(`EventSub notification: ${type} for ${broadcasterName}`);
@@ -223,6 +223,22 @@ async function start() {
       if (type === "stream.online") {
         console.log(`${broadcasterName} went live on Twitch`);
         botState.setStreamStatus(broadcasterName.toLowerCase(), "online");
+
+        // Edit the offline message if it exists
+        const offlineMsg = botState.getOfflineMessage(broadcasterName.toLowerCase());
+        if (offlineMsg) {
+          try {
+            const channel = await discordClient.channels.fetch(offlineMsg.channelId);
+            const message = await channel.messages.fetch(offlineMsg.messageId);
+            // Strikethrough original content (after [SYSTEM] prefix) and add "online again"
+            const originalText = offlineMsg.originalContent.replace("[SYSTEM] ", "");
+            await message.edit(`[SYSTEM] ~~${originalText}~~ online again`);
+            botState.clearOfflineMessage(broadcasterName.toLowerCase());
+          } catch (error) {
+            console.error("Failed to edit offline message:", error);
+          }
+        }
+
         const freezeChannel = process.env.FREEZE_CHANNEL?.toLowerCase();
         if (freezeChannel && broadcasterName.toLowerCase() === freezeChannel) {
           freezeOnlineSignal();
@@ -247,9 +263,22 @@ async function start() {
         }
 
         const mention = STREAM_ALERT_ROLE_ID ? `<@&${STREAM_ALERT_ROLE_ID}> ` : "";
-        relaySystemMessage(`${mention}${broadcasterName} has gone offline`, DISCORD_CHANNEL_ID).catch(error => {
+        const content = `${mention}${broadcasterName} has gone offline`;
+
+        try {
+          const messages = await relaySystemMessage(content, DISCORD_CHANNEL_ID);
+          // Store first message ID for later editing when stream comes back online
+          if (messages?.length > 0) {
+            botState.setOfflineMessage(
+              broadcasterName.toLowerCase(),
+              messages[0].id,
+              messages[0].channel.id,
+              messages[0].content
+            );
+          }
+        } catch (error) {
           console.error("Failed to send offline stream alert", error);
-        });
+        }
       } else if (type === "channel.raid") {
         const fromBroadcaster = payload?.event?.from_broadcaster_user_name || payload?.event?.from_broadcaster_user_login;
         const toBroadcaster = payload?.event?.to_broadcaster_user_name || payload?.event?.to_broadcaster_user_login;
@@ -291,17 +320,13 @@ async function start() {
     },
     onOffline: () => {
       botState.setStreamStatus(freezeChannelName, "offline");
-      const channel = process.env.FREEZE_CHANNEL || "Stream";
-      relaySystemMessage(`${channel} appears offline`, DISCORD_CHANNEL_ID).catch(error => {
-        console.error("Failed to send offline alert", error);
-      });
+      console.log(`${freezeChannelName || "Stream"} appears offline (freeze monitor)`);
+      // No Discord message - EventSub handles offline alerts
     },
     onOnline: () => {
       botState.setStreamStatus(freezeChannelName, "online");
-      const channel = process.env.FREEZE_CHANNEL || "Stream";
-      relaySystemMessage(`${channel} appears online`, DISCORD_CHANNEL_ID).catch(error => {
-        console.error("Failed to send online alert", error);
-      });
+      console.log(`${freezeChannelName || "Stream"} appears online (freeze monitor)`);
+      // No Discord message - EventSub handles online by editing offline message
     }
   });
 

@@ -146,11 +146,12 @@ export async function relaySystemMessage(message, discordChannelId) {
   }
 
   const payload = `[SYSTEM] ${message}`;
-  await Promise.all(
+  const messages = await Promise.all(
     channels
       .filter(channel => channel?.isTextBased())
       .map(channel => channel.send(payload))
   );
+  return messages;
 }
 
 /**
