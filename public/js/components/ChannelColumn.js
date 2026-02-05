@@ -17,6 +17,7 @@ function ChatMessage({ message }) {
   const username = message.twitchUsername || message.displayName || message.username;
   const messageId = message.twitchMessageId || message.id;
   const content = message.content || message.message || "(message content not available)";
+  const nameColor = message.color || "var(--accent-primary)";
 
   const handleDelete = async () => {
     try {
@@ -47,7 +48,7 @@ function ChatMessage({ message }) {
     <div class="chat-message ${isSuspicious ? "suspicious" : ""} ${isRelayed ? "relayed" : ""}">
       <span class="chat-timestamp">${formatTime(message.timestamp)}</span>
       <div class="chat-content">
-        <span class="chat-username">${username}</span>
+        <span class="chat-username" style="color: ${nameColor}">${username}</span>
         <span>: </span>
         <span>${content}</span>
       </div>

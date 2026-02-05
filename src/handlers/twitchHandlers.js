@@ -218,6 +218,7 @@ function handleTwitchMessage(channel, tags, message, self, env, discordChannelId
     username: tags?.username || "unknown",
     displayName: username,
     message: message,
+    color: tags?.color || null,
     badges: tags?.badges || {},
     relayed: false
   };
