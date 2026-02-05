@@ -227,7 +227,14 @@ export function ChannelColumn({ channel, displayName }) {
             />
             <button
               class="btn btn-sm ${autoScroll ? 'btn-primary' : 'btn-secondary'}"
-              onClick=${() => setAutoScroll(!autoScroll)}
+              onClick=${() => {
+                const newValue = !autoScroll;
+                setAutoScroll(newValue);
+                // Immediately scroll to top when re-enabling
+                if (newValue && chatFeedRef.current) {
+                  chatFeedRef.current.scrollTop = 0;
+                }
+              }}
               title=${autoScroll ? "Auto-scroll enabled" : "Auto-scroll disabled"}
             >
               ${autoScroll ? "Auto" : "Paused"}
