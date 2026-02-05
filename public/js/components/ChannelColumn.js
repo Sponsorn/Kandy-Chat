@@ -21,6 +21,10 @@ function ChatMessage({ message }) {
   const nameColor = message.color || "var(--accent-primary)";
   const badges = message.badges || {};
   const isPrivileged = badges.broadcaster || badges.moderator;
+  const isBroadcaster = !!badges.broadcaster;
+  const isMod = !!badges.moderator;
+  const isVip = !!badges.vip;
+  const isSub = !!badges.subscriber;
 
   const handleDelete = async () => {
     try {
@@ -51,6 +55,9 @@ function ChatMessage({ message }) {
     <div class="chat-message ${isSuspicious ? "suspicious" : ""} ${isRelayed ? "relayed" : ""} ${isDeleted ? "deleted" : ""}">
       <span class="chat-timestamp">${formatTime(message.timestamp)}</span>
       <div class="chat-content">
+        ${isBroadcaster && html`<span class="chat-badge broadcaster" title="Broadcaster">📺</span>`}
+        ${isMod && !isBroadcaster && html`<span class="chat-badge mod" title="Moderator">⚔️</span>`}
+        ${isVip && html`<span class="chat-badge vip" title="VIP">💎</span>`}
         <span class="chat-username" style="color: ${nameColor}">${username}</span>
         <span>: </span>
         <span>${isDeleted ? html`<s>${content}</s>` : content}</span>
