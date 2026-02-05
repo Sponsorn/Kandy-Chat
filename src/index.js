@@ -326,20 +326,50 @@ async function start() {
   startFreezeMonitor(freezeEnv, {
     logger: console,
     waitForOnline: webServer ? freezeWaitForOnline : undefined,
-    onFreeze: () => {
+    onFreeze: async () => {
       botState.setStreamStatus(freezeChannelName, "frozen");
       const mention = FREEZE_ALERT_ROLE_ID ? `<@&${FREEZE_ALERT_ROLE_ID}> ` : "";
       const channel = process.env.FREEZE_CHANNEL || "Stream";
-      relaySystemMessage(`${mention}${channel} appears frozen`, DISCORD_CHANNEL_ID).catch(error => {
+      const content = `${mention}${channel} appears frozen`;
+      try {
+        const messages = await relaySystemMessage(content, DISCORD_CHANNEL_ID);
+        if (messages?.length > 0) {
+          botState.setFreezeMessage(
+            freezeChannelName || "default",
+            messages[0].id,
+            messages[0].channel.id,
+            messages[0].content
+          );
+        }
+      } catch (error) {
         console.error("Failed to send freeze alert", error);
-      });
+      }
     },
-    onRecover: () => {
+    onRecover: async () => {
       botState.setStreamStatus(freezeChannelName, "online");
       const channel = process.env.FREEZE_CHANNEL || "Stream";
-      relaySystemMessage(`${channel} motion detected again`, DISCORD_CHANNEL_ID).catch(error => {
-        console.error("Failed to send recovery alert", error);
-      });
+
+      // Edit the freeze message if it exists
+      const freezeMsg = botState.getFreezeMessage(freezeChannelName || "default");
+      if (freezeMsg) {
+        try {
+          const discordChannel = await discordClient.channels.fetch(freezeMsg.channelId);
+          const message = await discordChannel.messages.fetch(freezeMsg.messageId);
+          const originalText = freezeMsg.originalContent.replace("[SYSTEM] ", "");
+          await message.edit(`[SYSTEM] ~~${originalText}~~ motion detected again`);
+          botState.clearFreezeMessage(freezeChannelName || "default");
+        } catch (error) {
+          console.error("Failed to edit freeze message:", error);
+          // Fall back to sending new message
+          relaySystemMessage(`${channel} motion detected again`, DISCORD_CHANNEL_ID).catch(err => {
+            console.error("Failed to send recovery alert", err);
+          });
+        }
+      } else {
+        relaySystemMessage(`${channel} motion detected again`, DISCORD_CHANNEL_ID).catch(error => {
+          console.error("Failed to send recovery alert", error);
+        });
+      }
     },
     onOffline: () => {
       botState.setStreamStatus(freezeChannelName, "offline");

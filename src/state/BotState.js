@@ -73,6 +73,9 @@ class BotState extends EventEmitter {
     // Offline message tracking for edit-on-recovery
     this.offlineMessageIds = new Map(); // channel -> { messageId, channelId, originalContent }
 
+    // Freeze message tracking for edit-on-recovery
+    this.freezeMessageIds = new Map(); // channel -> { messageId, channelId, originalContent }
+
     // Configuration cache
     this.config = {
       freezeAlertRoleId: null,
@@ -318,6 +321,27 @@ class BotState extends EventEmitter {
    */
   clearOfflineMessage(channel) {
     this.offlineMessageIds.delete(channel.toLowerCase());
+  }
+
+  /**
+   * Store freeze message info for later editing when stream recovers
+   */
+  setFreezeMessage(channel, messageId, channelId, originalContent) {
+    this.freezeMessageIds.set(channel.toLowerCase(), { messageId, channelId, originalContent });
+  }
+
+  /**
+   * Get stored freeze message info for a channel
+   */
+  getFreezeMessage(channel) {
+    return this.freezeMessageIds.get(channel.toLowerCase());
+  }
+
+  /**
+   * Clear stored freeze message after editing
+   */
+  clearFreezeMessage(channel) {
+    this.freezeMessageIds.delete(channel.toLowerCase());
   }
 
   /**
