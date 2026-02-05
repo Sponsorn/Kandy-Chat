@@ -18,6 +18,8 @@ function ChatMessage({ message }) {
   const messageId = message.twitchMessageId || message.id;
   const content = message.content || message.message || "(message content not available)";
   const nameColor = message.color || "var(--accent-primary)";
+  const badges = message.badges || {};
+  const isPrivileged = badges.broadcaster || badges.moderator;
 
   const handleDelete = async () => {
     try {
@@ -52,7 +54,7 @@ function ChatMessage({ message }) {
         <span>: </span>
         <span>${content}</span>
       </div>
-      ${canModerate.value && html`
+      ${canModerate.value && !isPrivileged && html`
         <div class="chat-actions">
           <button class="btn-icon" title="Delete" onClick=${handleDelete}>🗑️</button>
           <button class="btn-icon" title="Timeout" onClick=${handleTimeout}>⏱️</button>
