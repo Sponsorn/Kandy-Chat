@@ -14,6 +14,7 @@ import { validateConfigOrThrow } from "./config/configValidator.js";
 import { buildFilters, normalizeMessage } from "./filters.js";
 import { loadBlacklist } from "./blacklistStore.js";
 import { loadConfig } from "./configStore.js";
+import { saveMessage, scheduleCleanup, markMessageRelayed } from "./chatHistoryStore.js";
 import { startFreezeMonitor } from "./freezeMonitor.js";
 import { startWebServer } from "./server/webServer.js";
 import { TwitchAPIClient } from "./api/TwitchAPIClient.js";
@@ -130,6 +131,12 @@ async function hydrateRuntimeConfig() {
       }
     }
 
+    // Load ignored users for chat feed
+    if (config.chatFeed?.ignoredUsers) {
+      botState.setIgnoredUsers(config.chatFeed.ignoredUsers);
+      console.log(`Loaded ${config.chatFeed.ignoredUsers.length} ignored users for chat feed`);
+    }
+
     console.log("Runtime config loaded from storage");
   } catch (error) {
     console.warn("Failed to load runtime config file", error);
@@ -177,6 +184,16 @@ async function start() {
   await discordClient.login(DISCORD_TOKEN);
   await hydrateBlacklist();
   await hydrateRuntimeConfig();
+
+  // Wire chat messages to persistent storage
+  botState.on("chat:message", (messageData) => {
+    saveMessage(messageData.channel, messageData);
+  });
+
+  // Schedule chat history cleanup (get retention days from config)
+  const config = await loadConfig();
+  const retentionDays = config.chatFeed?.retentionDays ?? 3;
+  scheduleCleanup(retentionDays);
 
   const tokenInfo = await refreshAndApplyTwitchToken(credentials);
   const oauthToken = tokenInfo?.oauthToken ?? botState.currentOAuthToken;

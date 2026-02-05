@@ -27,6 +27,10 @@ const DEFAULT_CONFIG = {
       messageSingle: "Thank you for gifting to {recipient}, {user}! kandyHype",
       messageMultiple: "Thank you for gifting to {recipient_count} users, {user}! kandyHype"
     }
+  },
+  chatFeed: {
+    ignoredUsers: [],
+    retentionDays: 3
   }
 };
 

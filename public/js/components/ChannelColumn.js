@@ -1,6 +1,6 @@
 import { html } from "htm/preact";
 import { useState, useEffect } from "preact/hooks";
-import { streamStatus, freezeDetectedAt, messages, canModerate } from "../state.js";
+import { streamStatus, freezeDetectedAt, chatMessages, canModerate } from "../state.js";
 import { mod } from "../api.js";
 
 function formatTime(timestamp) {
@@ -10,10 +10,17 @@ function formatTime(timestamp) {
 
 function ChatMessage({ message }) {
   const isSuspicious = message.suspicious || false;
+  const isRelayed = message.relayed || false;
+
+  // Support both old format (twitchChannel, twitchUsername) and new format (channel, username)
+  const channel = message.twitchChannel || message.channel;
+  const username = message.twitchUsername || message.displayName || message.username;
+  const messageId = message.twitchMessageId || message.id;
+  const content = message.content || message.message || "(message content not available)";
 
   const handleDelete = async () => {
     try {
-      await mod.deleteMessage(message.twitchChannel, message.twitchMessageId);
+      await mod.deleteMessage(channel, messageId);
     } catch (error) {
       console.error("Delete failed:", error);
     }
@@ -21,28 +28,28 @@ function ChatMessage({ message }) {
 
   const handleTimeout = async () => {
     try {
-      await mod.timeoutUser(message.twitchChannel, message.twitchUsername);
+      await mod.timeoutUser(channel, message.username || message.twitchUsername);
     } catch (error) {
       console.error("Timeout failed:", error);
     }
   };
 
   const handleBan = async () => {
-    if (!confirm(`Ban ${message.twitchUsername}?`)) return;
+    if (!confirm(`Ban ${username}?`)) return;
     try {
-      await mod.banUser(message.twitchChannel, message.twitchUsername);
+      await mod.banUser(channel, message.username || message.twitchUsername);
     } catch (error) {
       console.error("Ban failed:", error);
     }
   };
 
   return html`
-    <div class="chat-message ${isSuspicious ? "suspicious" : ""}">
+    <div class="chat-message ${isSuspicious ? "suspicious" : ""} ${isRelayed ? "relayed" : ""}">
       <span class="chat-timestamp">${formatTime(message.timestamp)}</span>
       <div class="chat-content">
-        <span class="chat-username">${message.twitchUsername}</span>
+        <span class="chat-username">${username}</span>
         <span>: </span>
-        <span>${message.content || "(message content not available)"}</span>
+        <span>${content}</span>
       </div>
       ${canModerate.value && html`
         <div class="chat-actions">
@@ -73,16 +80,18 @@ export function ChannelColumn({ channel, displayName }) {
     };
 
     function updateMessages() {
-      const filtered = messages.value.filter(
-        m => m.twitchChannel?.toLowerCase() === channel.toLowerCase()
+      // Filter by channel (support both old twitchChannel and new channel format)
+      const filtered = chatMessages.value.filter(
+        m => (m.twitchChannel || m.channel)?.toLowerCase() === channel.toLowerCase()
       );
-      setMessageList(filtered);
+      // Reverse so newest is at top
+      setMessageList([...filtered].reverse());
     }
 
     window.addEventListener("app:status-update", handleStatusUpdate);
 
     // Also listen for new messages via signal subscription
-    const unsubscribe = messages.subscribe(() => {
+    const unsubscribe = chatMessages.subscribe(() => {
       updateMessages();
     });
 

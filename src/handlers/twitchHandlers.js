@@ -206,10 +206,25 @@ function handleTwitchMessage(channel, tags, message, self, env, discordChannelId
   if (self) return;
 
   const username = tags["display-name"] || tags.username || "unknown";
+  const normalizedChannel = channel.toLowerCase().replace(/^#/, "");
+  const messageId = tags?.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  // Emit raw message for chat feed BEFORE any filtering
+  // This allows the dashboard to show all messages including filtered ones
+  const chatMessageData = {
+    id: messageId,
+    timestamp: Date.now(),
+    channel: normalizedChannel,
+    username: tags?.username || "unknown",
+    displayName: username,
+    message: message,
+    badges: tags?.badges || {},
+    relayed: false
+  };
+  botState.addChatMessage(chatMessageData);
 
   // Check if this channel should be relayed
   if (botState.relayChannels) {
-    const normalizedChannel = channel.toLowerCase().replace(/^#/, "");
     if (!botState.relayChannels.has(normalizedChannel)) {
       if (message.trim() === "!klbping") {
         handleKlbPing(tags, channel);
@@ -241,6 +256,8 @@ function handleTwitchMessage(channel, tags, message, self, env, discordChannelId
     .then(sent => {
       const msgId = tags?.id;
       if (!msgId || !sent) return;
+      // Mark message as relayed in buffer
+      botState.markMessageRelayed(messageId);
       recordRelayMapping(msgId, sent, channel, tags?.username ?? username);
     })
     .catch(error => {

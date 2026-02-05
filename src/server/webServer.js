@@ -7,6 +7,7 @@ import { createTwitchAuthRoutes } from "../auth/twitchOAuth.js";
 import { createMonitoringRoutes } from "./routes/monitoringRoutes.js";
 import { createConfigRoutes } from "./routes/configRoutes.js";
 import { createControlRoutes } from "./routes/controlRoutes.js";
+import { createChatRoutes } from "./routes/chatRoutes.js";
 import { createDashboardSocket } from "./websocket/dashboardSocket.js";
 
 /**
@@ -224,6 +225,7 @@ export async function startWebServer(env, options = {}) {
     app.use(createMonitoringRoutes());
     app.use(createConfigRoutes({ updateBlacklistFromEntries }));
     app.use(createControlRoutes({ twitchAPIClient }));
+    app.use(createChatRoutes());
 
     // Static files for dashboard frontend
     const publicPath = join(process.cwd(), "public");

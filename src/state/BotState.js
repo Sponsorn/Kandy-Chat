@@ -42,6 +42,11 @@ class BotState extends EventEmitter {
     // Subscription batching
     this.giftSubBatches = new Map();
 
+    // Chat feed
+    this.chatBuffer = []; // Recent messages in memory (last 500)
+    this.chatIgnoredUsers = new Set(); // Usernames to ignore (lowercase)
+    this.maxChatBuffer = 500;
+
     // Runtime configuration (overrides env defaults when set)
     this.runtimeConfig = {
       filters: {},
@@ -494,6 +499,89 @@ class BotState extends EventEmitter {
     if (minutes > 0 || hours > 0) str += `${minutes}m `;
     str += `${seconds}s`;
     return str.trim();
+  }
+
+  /**
+   * Add a chat message to the buffer
+   * @param {Object} messageData - Message data with id, timestamp, channel, username, displayName, message, badges, relayed
+   * @returns {boolean} True if message was added, false if user is ignored
+   */
+  addChatMessage(messageData) {
+    // Check if user is ignored
+    const username = messageData.username?.toLowerCase();
+    if (username && this.chatIgnoredUsers.has(username)) {
+      return false;
+    }
+
+    this.chatBuffer.push(messageData);
+    if (this.chatBuffer.length > this.maxChatBuffer) {
+      this.chatBuffer.shift();
+    }
+
+    this.emit("chat:message", messageData);
+    return true;
+  }
+
+  /**
+   * Mark a message as relayed in the chat buffer
+   * @param {string} messageId - The message ID to mark as relayed
+   * @returns {boolean} True if message was found and updated
+   */
+  markMessageRelayed(messageId) {
+    for (const msg of this.chatBuffer) {
+      if (msg.id === messageId) {
+        msg.relayed = true;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Get recent chat messages
+   * @param {string} channel - Optional channel filter
+   * @param {number} limit - Maximum messages to return
+   * @returns {Array} Recent messages
+   */
+  getRecentChat(channel = null, limit = 200) {
+    let msgs = this.chatBuffer;
+    if (channel) {
+      const normalizedChannel = channel.toLowerCase().replace(/^#/, "");
+      msgs = msgs.filter(m => m.channel === normalizedChannel);
+    }
+    return msgs.slice(-limit);
+  }
+
+  /**
+   * Set the list of ignored users
+   * @param {Array<string>} users - Array of usernames to ignore
+   */
+  setIgnoredUsers(users) {
+    this.chatIgnoredUsers = new Set(users.map(u => u.toLowerCase()));
+  }
+
+  /**
+   * Add a user to the ignored list
+   * @param {string} username - Username to ignore
+   */
+  addIgnoredUser(username) {
+    this.chatIgnoredUsers.add(username.toLowerCase());
+  }
+
+  /**
+   * Remove a user from the ignored list
+   * @param {string} username - Username to unignore
+   */
+  removeIgnoredUser(username) {
+    this.chatIgnoredUsers.delete(username.toLowerCase());
+  }
+
+  /**
+   * Get the list of ignored users
+   * @returns {Array<string>} Array of ignored usernames
+   */
+  getIgnoredUsers() {
+    return Array.from(this.chatIgnoredUsers);
   }
 
   /**

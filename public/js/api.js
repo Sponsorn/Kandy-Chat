@@ -159,3 +159,28 @@ export const audit = {
     return request("GET", `/api/audit?limit=${limit}&offset=${offset}`);
   }
 };
+
+// Chat API
+export const chat = {
+  async getHistory(channel, limit = 500) {
+    return request("GET", `/api/chat/history?channel=${encodeURIComponent(channel)}&limit=${limit}`);
+  },
+
+  async getRecent(channel = null, limit = 200) {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (channel) params.set("channel", channel);
+    return request("GET", `/api/chat/recent?${params}`);
+  },
+
+  async getIgnoredUsers() {
+    return request("GET", "/api/chat/ignored-users");
+  },
+
+  async addIgnoredUser(username) {
+    return request("POST", "/api/chat/ignored-users", { username });
+  },
+
+  async removeIgnoredUser(username) {
+    return request("DELETE", "/api/chat/ignored-users", { username });
+  }
+};

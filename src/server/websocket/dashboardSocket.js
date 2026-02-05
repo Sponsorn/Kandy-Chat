@@ -31,7 +31,7 @@ export function createDashboardSocket(server) {
       ws,
       session,
       permission,
-      subscribedEvents: new Set(["stream:status", "status:update"]) // Default subscriptions for all users
+      subscribedEvents: new Set(["stream:status", "status:update", "chat:message"]) // Default subscriptions for all users
     };
     clients.set(ws, clientInfo);
 
@@ -43,7 +43,8 @@ export function createDashboardSocket(server) {
       data: {
         connected: true,
         permission: clientInfo.permission,
-        status: botState.getSnapshot()
+        status: botState.getSnapshot(),
+        recentChat: botState.getRecentChat(null, 200)
       }
     });
 
@@ -135,6 +136,10 @@ export function createDashboardSocket(server) {
 
   botState.on("message:relayed", (data) => {
     broadcast("message:relay", data, Permissions.VIEWER);
+  });
+
+  botState.on("chat:message", (data) => {
+    broadcast("chat:message", data, Permissions.VIEWER);
   });
 
   botState.on("mod:action", (data) => {

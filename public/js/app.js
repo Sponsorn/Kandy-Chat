@@ -16,6 +16,7 @@ import { ConfigPanel } from "./components/ConfigPanel.js";
 import { ControlPanel } from "./components/ControlPanel.js";
 import { AuditLog } from "./components/AuditLog.js";
 import { ChannelColumn } from "./components/ChannelColumn.js";
+import { IgnoredUsersEditor } from "./components/IgnoredUsersEditor.js";
 
 // Utility to format channel display name
 function formatChannelName(channel) {
@@ -130,6 +131,9 @@ function SettingsPage() {
         <p class="page-subtitle">Bot configuration</p>
       </header>
       <${ConfigPanel} />
+      <div style="margin-top: 1.5rem;">
+        <${IgnoredUsersEditor} />
+      </div>
     </div>
   `;
 }

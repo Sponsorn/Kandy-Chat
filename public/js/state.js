@@ -34,7 +34,7 @@ export const metrics = signal({
   lastMessageTime: null
 });
 
-// Chat messages (real-time feed)
+// Chat messages (real-time feed) - legacy, only relayed messages
 export const messages = signal([]);
 const MAX_MESSAGES = 200;
 
@@ -42,6 +42,21 @@ export function addMessage(msg) {
   const current = messages.value;
   const newMessages = [{ ...msg, id: Date.now() + Math.random() }, ...current];
   messages.value = newMessages.slice(0, MAX_MESSAGES);
+}
+
+// Chat feed messages (ALL messages, including filtered ones)
+export const chatMessages = signal([]);
+const MAX_CHAT_MESSAGES = 500;
+
+export function addChatMessage(msg) {
+  const current = chatMessages.value;
+  // Add to end (newest last) for chronological display
+  const newMessages = [...current, msg].slice(-MAX_CHAT_MESSAGES);
+  chatMessages.value = newMessages;
+}
+
+export function setChatMessages(msgs) {
+  chatMessages.value = msgs.slice(-MAX_CHAT_MESSAGES);
 }
 
 // Mod actions
@@ -122,6 +137,10 @@ export function updateFromWs(data) {
     if (status.channels?.twitch) {
       twitchChannels.value = status.channels.twitch;
     }
+    // Handle initial chat messages from init
+    if (data.type === "init" && data.data.recentChat) {
+      handleInitChatMessages(data.data.recentChat);
+    }
     dispatchStatusUpdate();
   } else if (data.type === "message:relay") {
     addMessage(data.data);
@@ -160,6 +179,15 @@ export function updateFromWs(data) {
     }
   } else if (data.type === "audit:event") {
     addAuditEntry(data.data);
+  } else if (data.type === "chat:message") {
+    addChatMessage(data.data);
+  }
+}
+
+// Handle initial chat messages from init
+export function handleInitChatMessages(recentChat) {
+  if (recentChat && Array.isArray(recentChat)) {
+    setChatMessages(recentChat);
   }
 }
 
