@@ -34,6 +34,12 @@ export const metrics = signal({
   lastMessageTime: null
 });
 
+// Chat stats per channel
+export const chatStats = signal({}); // { "kandyland": { messageCount, uniqueUsers, messagesPerHour } }
+
+// Recent raids
+export const recentRaids = signal([]); // Array of { from, to, viewers, timestamp }
+
 // Chat messages (real-time feed) - legacy, only relayed messages
 export const messages = signal([]);
 const MAX_MESSAGES = 200;
@@ -123,6 +129,10 @@ export function updateFromWs(data) {
     if (status.metrics) {
       metrics.value = status.metrics;
     }
+    // Handle chat stats
+    if (status.chatStats) {
+      chatStats.value = { ...status.chatStats };
+    }
     // Handle per-channel stream status
     if (status.metrics?.streamStatusByChannel) {
       streamStatus.value = { ...status.metrics.streamStatusByChannel };
@@ -189,6 +199,9 @@ export function updateFromWs(data) {
     addChatMessage(data.data);
   } else if (data.type === "chat:message-deleted") {
     markChatMessageDeleted(data.data.id);
+  } else if (data.type === "raid:incoming") {
+    recentRaids.value = [data.data, ...recentRaids.value].slice(0, 10);
+    window.dispatchEvent(new CustomEvent("app:raid-incoming", { detail: data.data }));
   }
 }
 

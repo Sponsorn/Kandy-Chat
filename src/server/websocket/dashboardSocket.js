@@ -209,6 +209,10 @@ export function createDashboardSocket(server) {
     broadcast("audit:event", data, Permissions.ADMIN);
   });
 
+  botState.on("raid:incoming", (data) => {
+    broadcast("raid:incoming", data, Permissions.VIEWER);
+  });
+
   // Periodic status broadcast every 30 seconds
   setInterval(() => {
     broadcast("status:update", botState.getSnapshot(), Permissions.VIEWER);

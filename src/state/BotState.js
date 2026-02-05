@@ -48,6 +48,9 @@ class BotState extends EventEmitter {
     this.maxChatBuffer = 500;
     this.chatFeedDebug = false;
 
+    // Chat stats per channel
+    this.chatStats = {}; // { channel: { messageCount: 0, uniqueUsers: Set, hourlyMessages: [] } }
+
     // Runtime configuration (overrides env defaults when set)
     this.runtimeConfig = {
       filters: {},
@@ -626,6 +629,45 @@ class BotState extends EventEmitter {
   }
 
   /**
+   * Update chat stats for a channel
+   * @param {string} channel - Channel name (lowercase)
+   * @param {string} username - Username of the chatter
+   */
+  updateChatStats(channel, username) {
+    if (!this.chatStats[channel]) {
+      this.chatStats[channel] = {
+        messageCount: 0,
+        uniqueUsers: new Set(),
+        hourlyMessages: [] // timestamps of messages in the last hour
+      };
+    }
+    const stats = this.chatStats[channel];
+    stats.messageCount++;
+    stats.uniqueUsers.add(username.toLowerCase());
+
+    // Track hourly rate
+    const now = Date.now();
+    stats.hourlyMessages.push(now);
+    // Keep only messages from last hour
+    stats.hourlyMessages = stats.hourlyMessages.filter(t => now - t < 3600000);
+  }
+
+  /**
+   * Get chat stats for a channel
+   * @param {string} channel - Channel name
+   * @returns {Object} Stats object with messageCount, uniqueUsers, messagesPerHour
+   */
+  getChatStats(channel) {
+    const stats = this.chatStats[channel];
+    if (!stats) return { messageCount: 0, uniqueUsers: 0, messagesPerHour: 0 };
+    return {
+      messageCount: stats.messageCount,
+      uniqueUsers: stats.uniqueUsers.size,
+      messagesPerHour: stats.hourlyMessages.length
+    };
+  }
+
+  /**
    * Get snapshot for dashboard
    */
   getSnapshot() {
@@ -646,7 +688,10 @@ class BotState extends EventEmitter {
       },
       blacklistCount: this.runtimeBlacklist.size,
       relayMapSize: this.relayMessageMap.size,
-      runtimeConfig: { ...this.runtimeConfig }
+      runtimeConfig: { ...this.runtimeConfig },
+      chatStats: Object.fromEntries(
+        Object.entries(this.chatStats).map(([ch, _s]) => [ch, this.getChatStats(ch)])
+      )
     };
   }
 }

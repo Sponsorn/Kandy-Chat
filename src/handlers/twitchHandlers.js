@@ -220,11 +220,15 @@ function handleTwitchMessage(channel, tags, message, self, env, discordChannelId
     message: message,
     color: tags?.color || null,
     badges: tags?.badges || {},
+    firstMsg: tags?.["first-msg"] === "1",
     relayed: false
   };
   const added = botState.addChatMessage(chatMessageData);
-  if (added && botState.chatFeedDebug) {
-    console.log(`[ChatFeed] Captured: ${normalizedChannel} ${username} (color: ${tags?.color || "none"}): ${message.substring(0, 50)}`);
+  if (added) {
+    botState.updateChatStats(normalizedChannel, tags?.username || "unknown");
+    if (botState.chatFeedDebug) {
+      console.log(`[ChatFeed] Captured: ${normalizedChannel} ${username} (color: ${tags?.color || "none"}): ${message.substring(0, 50)}`);
+    }
   }
 
   // Check if this channel should be relayed

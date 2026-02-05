@@ -310,6 +310,13 @@ async function start() {
 
         if (fromBroadcaster) {
           botState.recordRaid(fromBroadcaster);
+          // Emit raid:incoming event for dashboard with full data
+          botState.emit("raid:incoming", {
+            from: fromBroadcaster,
+            to: toBroadcaster,
+            viewers: viewers,
+            timestamp: Date.now()
+          });
         }
       }
     }
