@@ -36,6 +36,8 @@ export function IgnoredUsersEditor() {
   const [success, setSuccess] = useState(null);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [debugEnabled, setDebugEnabled] = useState(false);
+  const [togglingDebug, setTogglingDebug] = useState(false);
 
   const fetchIgnoredUsers = async () => {
     try {
@@ -48,9 +50,36 @@ export function IgnoredUsersEditor() {
     }
   };
 
+  const fetchSettings = async () => {
+    try {
+      const result = await chat.getSettings();
+      setDebugEnabled(result.debug || false);
+    } catch (err) {
+      console.error("Failed to fetch chat settings:", err);
+    }
+  };
+
   useEffect(() => {
     fetchIgnoredUsers();
+    fetchSettings();
   }, []);
+
+  const handleToggleDebug = async () => {
+    setTogglingDebug(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const result = await chat.updateSettings({ debug: !debugEnabled });
+      if (result.success) {
+        setDebugEnabled(!debugEnabled);
+        setSuccess(`Chat feed debug logging ${!debugEnabled ? "enabled" : "disabled"}`);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setTogglingDebug(false);
+    }
+  };
 
   const handleAdd = async (e) => {
     e.preventDefault();
@@ -100,10 +129,24 @@ export function IgnoredUsersEditor() {
   return html`
     <div class="card">
       <div class="card-header">
-        <span class="card-title">Ignored Users</span>
-        <span class="text-muted">${users.length} users</span>
+        <span class="card-title">Chat Feed Settings</span>
       </div>
       <div class="card-body">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
+          <div>
+            <div style="font-weight: 500;">Debug Logging</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">Log captured messages to console</div>
+          </div>
+          <button
+            class="btn ${debugEnabled ? "btn-primary" : "btn-secondary"}"
+            onClick=${handleToggleDebug}
+            disabled=${togglingDebug}
+          >
+            ${togglingDebug ? "..." : debugEnabled ? "Enabled" : "Disabled"}
+          </button>
+        </div>
+
+        <div style="font-weight: 500; margin-bottom: 0.5rem;">Ignored Users <span class="text-muted" style="font-weight: normal;">(${users.length})</span></div>
         ${error && html`
           <div class="alert alert-error" style="margin-bottom: 1rem;">
             ${error}

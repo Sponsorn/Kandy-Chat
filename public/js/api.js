@@ -182,5 +182,13 @@ export const chat = {
 
   async removeIgnoredUser(username) {
     return request("DELETE", "/api/chat/ignored-users", { username });
+  },
+
+  async getSettings() {
+    return request("GET", "/api/chat/settings");
+  },
+
+  async updateSettings(settings) {
+    return request("PUT", "/api/chat/settings", settings);
   }
 };

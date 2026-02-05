@@ -30,7 +30,8 @@ const DEFAULT_CONFIG = {
   },
   chatFeed: {
     ignoredUsers: [],
-    retentionDays: 3
+    retentionDays: 3,
+    debug: false
   }
 };
 

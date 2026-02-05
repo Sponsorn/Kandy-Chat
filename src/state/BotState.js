@@ -46,6 +46,7 @@ class BotState extends EventEmitter {
     this.chatBuffer = []; // Recent messages in memory (last 500)
     this.chatIgnoredUsers = new Set(); // Usernames to ignore (lowercase)
     this.maxChatBuffer = 500;
+    this.chatFeedDebug = false;
 
     // Runtime configuration (overrides env defaults when set)
     this.runtimeConfig = {

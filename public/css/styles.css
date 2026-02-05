@@ -644,7 +644,7 @@ html, body {
 
 .channel-chat-card .chat-feed {
   flex: 1;
-  max-height: 400px;
+  max-height: 700px;
   overflow-y: auto;
 }
 

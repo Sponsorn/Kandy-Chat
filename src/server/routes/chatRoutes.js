@@ -130,6 +130,74 @@ export function createChatRoutes() {
   });
 
   /**
+   * GET /api/chat/settings - Get chat feed settings (requires moderator)
+   */
+  router.get("/api/chat/settings", requireAuth(Permissions.MODERATOR), async (req, res) => {
+    try {
+      const config = await loadConfig();
+      res.json({
+        debug: config.chatFeed?.debug || false,
+        retentionDays: config.chatFeed?.retentionDays || 3
+      });
+    } catch (error) {
+      console.error("Failed to load chat settings:", error);
+      res.status(500).json({ error: "Failed to load chat settings" });
+    }
+  });
+
+  /**
+   * PUT /api/chat/settings - Update chat feed settings (requires moderator)
+   * Body: { debug?: boolean, retentionDays?: number }
+   */
+  router.put("/api/chat/settings", requireAuth(Permissions.MODERATOR), async (req, res) => {
+    const { debug, retentionDays } = req.body;
+    const updates = {};
+    const changes = [];
+
+    if (typeof debug === "boolean") {
+      updates.debug = debug;
+      changes.push(`debug: ${debug}`);
+    }
+
+    if (typeof retentionDays === "number" && retentionDays >= 1 && retentionDays <= 30) {
+      updates.retentionDays = retentionDays;
+      changes.push(`retentionDays: ${retentionDays}`);
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "No valid settings provided" });
+    }
+
+    try {
+      await updateConfigSection("chatFeed", updates);
+
+      // Apply to runtime
+      if (updates.debug !== undefined) {
+        botState.chatFeedDebug = updates.debug;
+      }
+
+      // Audit log
+      const actor = req.session?.user?.username || "unknown";
+      botState.recordAuditEvent("config_update", actor, {
+        section: "chatFeed",
+        changes: updates
+      }, "dashboard");
+
+      res.json({
+        success: true,
+        message: `Updated chat settings: ${changes.join(", ")}`,
+        settings: {
+          debug: botState.chatFeedDebug,
+          retentionDays: updates.retentionDays || 3
+        }
+      });
+    } catch (error) {
+      console.error("Failed to update chat settings:", error);
+      res.status(500).json({ error: "Failed to update chat settings" });
+    }
+  });
+
+  /**
    * DELETE /api/chat/ignored-users - Remove user from ignored list (requires moderator)
    * Body: { username: "username" }
    */

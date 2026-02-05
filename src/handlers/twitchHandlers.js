@@ -223,7 +223,7 @@ function handleTwitchMessage(channel, tags, message, self, env, discordChannelId
     relayed: false
   };
   const added = botState.addChatMessage(chatMessageData);
-  if (added) {
+  if (added && botState.chatFeedDebug) {
     console.log(`[ChatFeed] Captured: ${normalizedChannel} ${username}: ${message.substring(0, 50)}`);
   }
 

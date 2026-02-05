@@ -137,6 +137,12 @@ async function hydrateRuntimeConfig() {
       console.log(`Loaded ${config.chatFeed.ignoredUsers.length} ignored users for chat feed`);
     }
 
+    // Load chat feed debug flag
+    if (config.chatFeed?.debug) {
+      botState.chatFeedDebug = config.chatFeed.debug;
+      console.log("Chat feed debug logging enabled");
+    }
+
     console.log("Runtime config loaded from storage");
   } catch (error) {
     console.warn("Failed to load runtime config file", error);
