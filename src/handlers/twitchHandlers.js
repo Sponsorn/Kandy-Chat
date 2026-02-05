@@ -221,7 +221,10 @@ function handleTwitchMessage(channel, tags, message, self, env, discordChannelId
     badges: tags?.badges || {},
     relayed: false
   };
-  botState.addChatMessage(chatMessageData);
+  const added = botState.addChatMessage(chatMessageData);
+  if (added) {
+    console.log(`[ChatFeed] Captured: ${normalizedChannel} ${username}: ${message.substring(0, 50)}`);
+  }
 
   // Check if this channel should be relayed
   if (botState.relayChannels) {
