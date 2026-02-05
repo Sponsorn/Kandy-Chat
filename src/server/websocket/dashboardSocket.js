@@ -1,6 +1,7 @@
 import { WebSocketServer } from "ws";
 import botState from "../../state/BotState.js";
 import { getSession, Permissions } from "../../auth/sessionManager.js";
+import { loadMessages } from "../../chatHistoryStore.js";
 
 /**
  * Create WebSocket server for real-time dashboard updates
@@ -16,7 +17,7 @@ export function createDashboardSocket(server) {
   // Track connected clients with their sessions
   const clients = new Map();
 
-  wss.on("connection", (ws, req) => {
+  wss.on("connection", async (ws, req) => {
     // Extract session from cookie
     const cookies = req.headers.cookie || "";
     const sessionMatch = cookies.match(/session=([^;]+)/);
@@ -37,6 +38,40 @@ export function createDashboardSocket(server) {
 
     console.log(`WebSocket client connected (permission: ${clientInfo.permission})`);
 
+    // Load chat history from storage for each channel
+    let recentChat = [];
+    try {
+      const channels = botState.twitchChannels || [];
+      const historyPromises = channels.map(ch =>
+        loadMessages(ch.replace(/^#/, ""), 0, 250).catch(() => [])
+      );
+      const channelHistories = await Promise.all(historyPromises);
+
+      // Merge all channel histories
+      for (const history of channelHistories) {
+        recentChat.push(...history);
+      }
+
+      // Sort by timestamp and limit
+      recentChat.sort((a, b) => a.timestamp - b.timestamp);
+      recentChat = recentChat.slice(-500);
+
+      // Merge with in-memory buffer (may have newer messages not yet flushed)
+      const memoryChat = botState.getRecentChat(null, 200);
+      const seenIds = new Set(recentChat.map(m => m.id));
+      for (const msg of memoryChat) {
+        if (!seenIds.has(msg.id)) {
+          recentChat.push(msg);
+        }
+      }
+
+      // Final sort
+      recentChat.sort((a, b) => a.timestamp - b.timestamp);
+    } catch (error) {
+      console.error("Failed to load chat history for WebSocket init:", error);
+      recentChat = botState.getRecentChat(null, 200);
+    }
+
     // Send initial state
     sendToClient(ws, {
       type: "init",
@@ -44,7 +79,7 @@ export function createDashboardSocket(server) {
         connected: true,
         permission: clientInfo.permission,
         status: botState.getSnapshot(),
-        recentChat: botState.getRecentChat(null, 200)
+        recentChat
       }
     });
 
