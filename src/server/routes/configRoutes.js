@@ -100,10 +100,15 @@ export function createConfigRoutes(options = {}) {
 
         // Audit log
         const actor = req.session?.user?.username || "unknown";
-        botState.recordAuditEvent("blacklist_add", actor, {
-          word: trimmed,
-          total: result.words.length
-        }, "dashboard");
+        botState.recordAuditEvent(
+          "blacklist_add",
+          actor,
+          {
+            word: trimmed,
+            total: result.words.length
+          },
+          "dashboard"
+        );
 
         res.json({
           success: true,
@@ -150,10 +155,15 @@ export function createConfigRoutes(options = {}) {
 
         // Audit log
         const actor = req.session?.user?.username || "unknown";
-        botState.recordAuditEvent("blacklist_remove", actor, {
-          word: trimmed,
-          total: result.words.length
-        }, "dashboard");
+        botState.recordAuditEvent(
+          "blacklist_remove",
+          actor,
+          {
+            word: trimmed,
+            total: result.words.length
+          },
+          "dashboard"
+        );
 
         res.json({
           success: true,
@@ -231,7 +241,8 @@ export function createConfigRoutes(options = {}) {
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({
-        error: "No valid filter settings provided. Expected: blockCommands, blockEmotes, or suspiciousFlagEnabled (boolean)"
+        error:
+          "No valid filter settings provided. Expected: blockCommands, blockEmotes, or suspiciousFlagEnabled (boolean)"
       });
     }
 
@@ -246,10 +257,15 @@ export function createConfigRoutes(options = {}) {
 
       // Audit log
       const actor = req.session?.user?.username || "unknown";
-      botState.recordAuditEvent("config_update", actor, {
-        section: "filters",
-        changes: updates
-      }, "dashboard");
+      botState.recordAuditEvent(
+        "config_update",
+        actor,
+        {
+          section: "filters",
+          changes: updates
+        },
+        "dashboard"
+      );
 
       // Emit event for WebSocket subscribers
       botState.emit("runtimeConfig:updated", { section: "filters", updates });
@@ -300,8 +316,12 @@ export function createConfigRoutes(options = {}) {
         },
         giftSub: {
           enabled: getEffectiveEnabled(giftSubConfig?.enabled, "GIFT_SUB_THANK_YOU_ENABLED"),
-          messageSingle: giftSubConfig?.messageSingle || "Thank you for gifting to {recipient}, {user}! kandyHype",
-          messageMultiple: giftSubConfig?.messageMultiple || "Thank you for gifting to {recipient_count} users, {user}! kandyHype"
+          messageSingle:
+            giftSubConfig?.messageSingle ||
+            "Thank you for gifting to {recipient}, {user}! kandyHype",
+          messageMultiple:
+            giftSubConfig?.messageMultiple ||
+            "Thank you for gifting to {recipient_count} users, {user}! kandyHype"
         },
         availableTags: {
           all: ["user", "tier", "channel"],
@@ -393,10 +413,15 @@ export function createConfigRoutes(options = {}) {
 
       // Audit log
       const actor = req.session?.user?.username || "unknown";
-      botState.recordAuditEvent("config_update", actor, {
-        section: "subscriptionMessages",
-        changes: changes
-      }, "dashboard");
+      botState.recordAuditEvent(
+        "config_update",
+        actor,
+        {
+          section: "subscriptionMessages",
+          changes: changes
+        },
+        "dashboard"
+      );
 
       // Emit event for WebSocket subscribers
       botState.emit("runtimeConfig:updated", { section: "subscriptionMessages", updates });

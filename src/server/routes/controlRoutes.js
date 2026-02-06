@@ -39,9 +39,14 @@ export function createControlRoutes(options = {}) {
     const actor = req.session?.user?.username || "unknown";
 
     // Log the restart action
-    botState.recordAuditEvent("restart", actor, {
-      reason: req.body?.reason || "Manual restart from dashboard"
-    }, "dashboard");
+    botState.recordAuditEvent(
+      "restart",
+      actor,
+      {
+        reason: req.body?.reason || "Manual restart from dashboard"
+      },
+      "dashboard"
+    );
 
     // Remove stop flag if it exists
     try {
@@ -71,9 +76,14 @@ export function createControlRoutes(options = {}) {
     const actor = req.session?.user?.username || "unknown";
 
     // Log the stop action
-    botState.recordAuditEvent("stop", actor, {
-      reason: req.body?.reason || "Manual stop from dashboard"
-    }, "dashboard");
+    botState.recordAuditEvent(
+      "stop",
+      actor,
+      {
+        reason: req.body?.reason || "Manual stop from dashboard"
+      },
+      "dashboard"
+    );
 
     // Write stop flag to prevent restart
     try {
@@ -115,10 +125,15 @@ export function createControlRoutes(options = {}) {
     try {
       await twitchAPIClient.deleteMessage(channel, messageId);
 
-      botState.recordModerationAction("delete", req.session?.user?.username || "dashboard", "unknown", {
-        channel,
-        messageId
-      });
+      botState.recordModerationAction(
+        "delete",
+        req.session?.user?.username || "dashboard",
+        "unknown",
+        {
+          channel,
+          messageId
+        }
+      );
 
       res.json({ success: true, message: "Message deleted" });
     } catch (error) {
@@ -145,10 +160,15 @@ export function createControlRoutes(options = {}) {
     try {
       await twitchAPIClient.timeoutUser(channel, username, seconds);
 
-      botState.recordModerationAction("timeout", req.session?.user?.username || "dashboard", username, {
-        channel,
-        duration: seconds
-      });
+      botState.recordModerationAction(
+        "timeout",
+        req.session?.user?.username || "dashboard",
+        username,
+        {
+          channel,
+          duration: seconds
+        }
+      );
 
       res.json({ success: true, message: `User ${username} timed out for ${seconds} seconds` });
     } catch (error) {
@@ -202,10 +222,15 @@ export function createControlRoutes(options = {}) {
     try {
       await twitchAPIClient.warnUser(channel, username, warnReason);
 
-      botState.recordModerationAction("warn", req.session?.user?.username || "dashboard", username, {
-        channel,
-        reason: warnReason
-      });
+      botState.recordModerationAction(
+        "warn",
+        req.session?.user?.username || "dashboard",
+        username,
+        {
+          channel,
+          reason: warnReason
+        }
+      );
 
       res.json({ success: true, message: `User ${username} warned` });
     } catch (error) {

@@ -65,13 +65,13 @@ function validateChannelMapping(env) {
     if (parts.length !== 2) {
       ERRORS.push(
         `Invalid TWITCH_CHANNEL_MAPPING entry: "${trimmed}"\n` +
-        `  Expected format: twitchChannel:discordChannelId\n` +
-        `  Example: kandyland:1234567890123456789`
+          `  Expected format: twitchChannel:discordChannelId\n` +
+          `  Example: kandyland:1234567890123456789`
       );
       return false;
     }
 
-    const [twitchCh, discordCh] = parts.map(s => s.trim());
+    const [twitchCh, discordCh] = parts.map((s) => s.trim());
     if (!twitchCh) {
       ERRORS.push(`Invalid TWITCH_CHANNEL_MAPPING: missing Twitch channel in "${trimmed}"`);
       return false;
@@ -85,7 +85,7 @@ function validateChannelMapping(env) {
     if (!/^\d{17,20}$/.test(discordCh)) {
       ERRORS.push(
         `Invalid Discord channel ID in TWITCH_CHANNEL_MAPPING: "${discordCh}"\n` +
-        `  Discord channel IDs should be 17-20 digit numbers`
+          `  Discord channel IDs should be 17-20 digit numbers`
       );
       return false;
     }
@@ -104,8 +104,8 @@ function validateOAuthToken(env) {
   if (!token.startsWith("oauth:")) {
     WARNINGS.push(
       `TWITCH_OAUTH should start with "oauth:" prefix\n` +
-      `  Current: "${token.substring(0, 10)}..."\n` +
-      `  Expected: "oauth:xxxxx..."`
+        `  Current: "${token.substring(0, 10)}..."\n` +
+        `  Expected: "oauth:xxxxx..."`
     );
   }
 
@@ -120,12 +120,14 @@ function validateDiscordId(env, key, description) {
   if (!isDefined(value)) return true;
 
   // Support comma-separated IDs
-  const ids = value.split(",").map(id => id.trim()).filter(Boolean);
+  const ids = value
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
   for (const id of ids) {
     if (!/^\d{17,20}$/.test(id)) {
       ERRORS.push(
-        `Invalid ${description} (${key}): "${id}"\n` +
-        `  Discord IDs should be 17-20 digit numbers`
+        `Invalid ${description} (${key}): "${id}"\n` + `  Discord IDs should be 17-20 digit numbers`
       );
       return false;
     }
@@ -147,8 +149,8 @@ function validateAuth(env) {
   if (!hasStaticOAuth && !hasRefreshCredentials) {
     ERRORS.push(
       `Missing Twitch authentication. Provide one of:\n` +
-      `  1. TWITCH_OAUTH - Static OAuth token\n` +
-      `  2. TWITCH_CLIENT_ID + TWITCH_CLIENT_SECRET + TWITCH_REFRESH_TOKEN - Auto-refresh credentials`
+        `  1. TWITCH_OAUTH - Static OAuth token\n` +
+        `  2. TWITCH_CLIENT_ID + TWITCH_CLIENT_SECRET + TWITCH_REFRESH_TOKEN - Auto-refresh credentials`
     );
     return false;
   }
@@ -156,7 +158,7 @@ function validateAuth(env) {
   if (hasStaticOAuth && hasRefreshCredentials) {
     WARNINGS.push(
       `Both TWITCH_OAUTH and refresh credentials provided.\n` +
-      `  Auto-refresh credentials will be used when TWITCH_OAUTH expires.`
+        `  Auto-refresh credentials will be used when TWITCH_OAUTH expires.`
     );
   }
 
@@ -196,8 +198,8 @@ function validateFreezeMonitor(env) {
   if (!hasHlsUrl && !hasChannel) {
     ERRORS.push(
       `Freeze monitor requires either:\n` +
-      `  1. FREEZE_HLS_URL - Direct HLS stream URL\n` +
-      `  2. FREEZE_CHANNEL - Twitch channel name (auto-fetches HLS URL)`
+        `  1. FREEZE_HLS_URL - Direct HLS stream URL\n` +
+        `  2. FREEZE_CHANNEL - Twitch channel name (auto-fetches HLS URL)`
     );
     return false;
   }
@@ -246,7 +248,10 @@ export function validateConfig(env) {
 
   // Optional numbers
   validateNumber(env, "REACTION_TIMEOUT_SECONDS", "reaction timeout", { min: 1, max: 1209600 });
-  validateNumber(env, "RAID_SUPPRESS_WINDOW_SECONDS", "raid suppress window", { min: 0, max: 3600 });
+  validateNumber(env, "RAID_SUPPRESS_WINDOW_SECONDS", "raid suppress window", {
+    min: 0,
+    max: 3600
+  });
 
   // Subsystems
   validateEventSub(env);

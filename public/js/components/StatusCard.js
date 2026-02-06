@@ -39,24 +39,14 @@ export function StatusGrid() {
       <${StatusCard}
         label="Bot Status"
         value=${status.connections?.discord && status.connections?.twitch ? "Online" : "Partial"}
-        className=${status.connections?.discord && status.connections?.twitch ? "online" : "warning"}
+        className=${status.connections?.discord && status.connections?.twitch
+          ? "online"
+          : "warning"}
       />
-      <${StatusCard}
-        label="Uptime"
-        value=${formatUptime()}
-      />
-      <${StatusCard}
-        label="Messages Relayed"
-        value=${stats.messagesRelayed.toLocaleString()}
-      />
-      <${StatusCard}
-        label="Messages Filtered"
-        value=${stats.messagesFiltered.toLocaleString()}
-      />
-      <${StatusCard}
-        label="Mod Actions"
-        value=${stats.moderationActions.toLocaleString()}
-      />
+      <${StatusCard} label="Uptime" value=${formatUptime()} />
+      <${StatusCard} label="Messages Relayed" value=${stats.messagesRelayed.toLocaleString()} />
+      <${StatusCard} label="Messages Filtered" value=${stats.messagesFiltered.toLocaleString()} />
+      <${StatusCard} label="Mod Actions" value=${stats.moderationActions.toLocaleString()} />
     </div>
   `;
 }

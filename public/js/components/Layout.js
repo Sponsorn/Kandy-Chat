@@ -1,5 +1,13 @@
 import { html } from "htm/preact";
-import { user, currentRoute, navigate, wsConnected, wsConnecting, canModerate, canAdmin } from "../state.js";
+import {
+  user,
+  currentRoute,
+  navigate,
+  wsConnected,
+  wsConnecting,
+  canModerate,
+  canAdmin
+} from "../state.js";
 import { auth } from "../api.js";
 
 function NavLink({ href, icon, children, requireMod, requireAdmin }) {
@@ -59,23 +67,32 @@ function Sidebar() {
 
       <div class="sidebar-footer">
         <div class="connection-indicator">
-          <span class="connection-dot ${wsConnected.value ? "" : wsConnecting.value ? "connecting" : "disconnected"}"></span>
+          <span
+            class="connection-dot ${wsConnected.value
+              ? ""
+              : wsConnecting.value
+                ? "connecting"
+                : "disconnected"}"
+          ></span>
           ${wsConnected.value ? "Connected" : wsConnecting.value ? "Connecting..." : "Disconnected"}
         </div>
 
-        ${user.value && html`
+        ${user.value &&
+        html`
           <div class="user-info" style="margin-top: 0.75rem;">
-            ${user.value.avatar ? html`
-              <img class="user-avatar" src=${user.value.avatar} alt="" />
-            ` : html`
-              <div class="user-avatar"></div>
-            `}
+            ${user.value.avatar
+              ? html` <img class="user-avatar" src=${user.value.avatar} alt="" /> `
+              : html` <div class="user-avatar"></div> `}
             <div>
               <div class="user-name">${user.value.username}</div>
               <div class="user-role">${permissionName}</div>
             </div>
           </div>
-          <button class="btn btn-secondary btn-sm" style="width: 100%; margin-top: 0.75rem;" onClick=${handleLogout}>
+          <button
+            class="btn btn-secondary btn-sm"
+            style="width: 100%; margin-top: 0.75rem;"
+            onClick=${handleLogout}
+          >
             Logout
           </button>
         `}
@@ -88,9 +105,7 @@ export function Layout({ children }) {
   return html`
     <div class="dashboard">
       <${Sidebar} />
-      <main class="main-content">
-        ${children}
-      </main>
+      <main class="main-content">${children}</main>
     </div>
   `;
 }

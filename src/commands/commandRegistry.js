@@ -8,11 +8,7 @@ import {
   handleImportBlacklist,
   handleExportBlacklist
 } from "./blacklistCommands.js";
-import {
-  handleWarn,
-  handleRestart,
-  handleStop
-} from "./moderationCommands.js";
+import { handleWarn, handleRestart, handleStop } from "./moderationCommands.js";
 
 /**
  * Command registry - maps subcommand names to handlers

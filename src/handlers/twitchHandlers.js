@@ -1,7 +1,11 @@
 import tmi from "tmi.js";
 import botState from "../state/BotState.js";
 import { normalizeMessage, shouldBlockMessage } from "../filters.js";
-import { relayToDiscord, recordRelayMapping, relaySystemMessage } from "../services/relayService.js";
+import {
+  relayToDiscord,
+  recordRelayMapping,
+  relaySystemMessage
+} from "../services/relayService.js";
 
 const GIFT_SUB_BATCH_MS = 1500;
 
@@ -87,9 +91,8 @@ function handleTwitchSubscription(channel, username, method, message, userstate,
 
   // Get config - runtime config takes precedence over env
   const subConfig = botState.getSubscriptionMessageConfig("sub");
-  const enabled = subConfig.enabled !== null
-    ? subConfig.enabled
-    : env.SUB_THANK_YOU_ENABLED !== "false";
+  const enabled =
+    subConfig.enabled !== null ? subConfig.enabled : env.SUB_THANK_YOU_ENABLED !== "false";
 
   if (enabled) {
     const template = subConfig.message || DEFAULT_MESSAGES.sub;
@@ -114,9 +117,8 @@ function handleTwitchResub(channel, username, streakMonths, message, userstate, 
 
   // Get config - runtime config takes precedence over env
   const resubConfig = botState.getSubscriptionMessageConfig("resub");
-  const enabled = resubConfig.enabled !== null
-    ? resubConfig.enabled
-    : env.RESUB_THANK_YOU_ENABLED !== "false";
+  const enabled =
+    resubConfig.enabled !== null ? resubConfig.enabled : env.RESUB_THANK_YOU_ENABLED !== "false";
 
   if (enabled) {
     const template = resubConfig.message || DEFAULT_MESSAGES.resub;
@@ -131,7 +133,9 @@ function handleTwitchResub(channel, username, streakMonths, message, userstate, 
     sendTwitchMessage(thankYouMessage, channel);
   }
 
-  console.log(`[${channel}] Resub: ${username} (${tier}, ${cumulativeMonths} months, current streak ${streakMonths})`);
+  console.log(
+    `[${channel}] Resub: ${username} (${tier}, ${cumulativeMonths} months, current streak ${streakMonths})`
+  );
 }
 
 /**
@@ -143,9 +147,8 @@ function handleTwitchSubGift(channel, username, streakMonths, recipient, methods
 
   // Get config - runtime config takes precedence over env
   const giftConfig = botState.getSubscriptionMessageConfig("giftSub");
-  const enabled = giftConfig.enabled !== null
-    ? giftConfig.enabled
-    : env.GIFT_SUB_THANK_YOU_ENABLED !== "false";
+  const enabled =
+    giftConfig.enabled !== null ? giftConfig.enabled : env.GIFT_SUB_THANK_YOU_ENABLED !== "false";
 
   if (!enabled) return;
 
@@ -193,7 +196,9 @@ function handleTwitchSubGift(channel, username, streakMonths, recipient, methods
     }
 
     sendTwitchMessage(thankYouMessage, batch.channel);
-    console.log(`[${batch.channel}] Sent combined gift sub thank you for ${recipientCount} gift(s) from ${batch.username}`);
+    console.log(
+      `[${batch.channel}] Sent combined gift sub thank you for ${recipientCount} gift(s) from ${batch.username}`
+    );
 
     botState.giftSubBatches.delete(batchKey);
   }, GIFT_SUB_BATCH_MS);
@@ -227,7 +232,9 @@ function handleTwitchMessage(channel, tags, message, self, env, discordChannelId
   if (added) {
     botState.updateChatStats(normalizedChannel, tags?.username || "unknown");
     if (botState.chatFeedDebug) {
-      console.log(`[ChatFeed] Captured: ${normalizedChannel} ${username} (color: ${tags?.color || "none"}): ${message.substring(0, 50)}`);
+      console.log(
+        `[ChatFeed] Captured: ${normalizedChannel} ${username} (color: ${tags?.color || "none"}): ${message.substring(0, 50)}`
+      );
     }
   }
 
@@ -249,26 +256,28 @@ function handleTwitchMessage(channel, tags, message, self, env, discordChannelId
 
   const normalized = normalizeMessage(message);
 
-  if (shouldBlockMessage({
-    username,
-    message: normalized,
-    rawMessage: message,
-    tags,
-    filters: botState.filters
-  })) {
+  if (
+    shouldBlockMessage({
+      username,
+      message: normalized,
+      rawMessage: message,
+      tags,
+      filters: botState.filters
+    })
+  ) {
     botState.recordFilteredMessage();
     return;
   }
 
   relayToDiscord(username, normalized, channel, discordChannelId)
-    .then(sent => {
+    .then((sent) => {
       const msgId = tags?.id;
       if (!msgId || !sent) return;
       // Mark message as relayed in buffer
       botState.markMessageRelayed(messageId);
       recordRelayMapping(msgId, sent, channel, tags?.username ?? username);
     })
-    .catch(error => {
+    .catch((error) => {
       console.error("Failed to relay message", error);
     });
 }
@@ -291,9 +300,7 @@ async function handleTwitchMessageDeleted(channel, username, deletedMessage, use
     return;
   }
 
-  const discordChannel = botState.discordChannels.find(
-    ch => ch?.id === record.discordChannelId
-  );
+  const discordChannel = botState.discordChannels.find((ch) => ch?.id === record.discordChannelId);
   if (!discordChannel || !discordChannel.isTextBased()) {
     return;
   }

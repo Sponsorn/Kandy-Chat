@@ -9,6 +9,20 @@ export class TwitchAPIClient {
     this.clientId = clientId;
     this.botUsername = botUsername;
     this.getAccessToken = getAccessToken;
+
+    // In-memory caches — IDs are immutable during bot lifetime
+    this.moderatorId = null;
+    this.broadcasterIdCache = new Map();
+    this.userIdCache = new Map();
+  }
+
+  /**
+   * Clear all cached IDs (for manual invalidation)
+   */
+  clearCache() {
+    this.moderatorId = null;
+    this.broadcasterIdCache.clear();
+    this.userIdCache.clear();
   }
 
   /**
@@ -17,13 +31,17 @@ export class TwitchAPIClient {
    * @returns {Promise<string>} User ID
    */
   async getUserId(login) {
+    const normalizedLogin = login.toLowerCase();
+    const cached = this.userIdCache.get(normalizedLogin);
+    if (cached) return cached;
+
     const accessToken = await this.getAccessToken();
 
     const response = await fetchWithTimeout(
-      `https://api.twitch.tv/helix/users?login=${encodeURIComponent(login)}`,
+      `https://api.twitch.tv/helix/users?login=${encodeURIComponent(normalizedLogin)}`,
       {
         headers: {
-          "Authorization": `Bearer ${accessToken}`,
+          Authorization: `Bearer ${accessToken}`,
           "Client-Id": this.clientId
         }
       }
@@ -40,6 +58,7 @@ export class TwitchAPIClient {
       throw new Error(`User not found: ${login}`);
     }
 
+    this.userIdCache.set(normalizedLogin, userId);
     return userId;
   }
 
@@ -49,50 +68,62 @@ export class TwitchAPIClient {
    * @returns {Promise<{broadcasterId: string, moderatorId: string}>}
    */
   async getBroadcasterAndModeratorIds(channelLogin) {
-    const accessToken = await this.getAccessToken();
+    const normalizedChannel = channelLogin.replace("#", "").toLowerCase();
 
-    // Get broadcaster ID
-    const broadcasterResponse = await fetchWithTimeout(
-      `https://api.twitch.tv/helix/users?login=${channelLogin.replace("#", "")}`,
-      {
-        headers: {
-          "Authorization": `Bearer ${accessToken}`,
-          "Client-Id": this.clientId
-        }
-      }
-    );
-
-    if (!broadcasterResponse.ok) {
-      throw new Error(`Failed to get broadcaster ID: ${broadcasterResponse.status}`);
-    }
-
-    const broadcasterData = await broadcasterResponse.json();
-    const broadcasterId = broadcasterData.data?.[0]?.id;
-
+    // Check broadcaster cache
+    let broadcasterId = this.broadcasterIdCache.get(normalizedChannel);
     if (!broadcasterId) {
-      throw new Error("Broadcaster not found");
-    }
-
-    // Get moderator ID (the bot itself)
-    const modResponse = await fetchWithTimeout(
-      `https://api.twitch.tv/helix/users?login=${this.botUsername}`,
-      {
-        headers: {
-          "Authorization": `Bearer ${accessToken}`,
-          "Client-Id": this.clientId
+      const accessToken = await this.getAccessToken();
+      const broadcasterResponse = await fetchWithTimeout(
+        `https://api.twitch.tv/helix/users?login=${encodeURIComponent(normalizedChannel)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Client-Id": this.clientId
+          }
         }
-      }
-    );
+      );
 
-    if (!modResponse.ok) {
-      throw new Error(`Failed to get moderator ID: ${modResponse.status}`);
+      if (!broadcasterResponse.ok) {
+        throw new Error(`Failed to get broadcaster ID: ${broadcasterResponse.status}`);
+      }
+
+      const broadcasterData = await broadcasterResponse.json();
+      broadcasterId = broadcasterData.data?.[0]?.id;
+
+      if (!broadcasterId) {
+        throw new Error("Broadcaster not found");
+      }
+
+      this.broadcasterIdCache.set(normalizedChannel, broadcasterId);
     }
 
-    const modData = await modResponse.json();
-    const moderatorId = modData.data?.[0]?.id;
-
+    // Check moderator cache
+    let moderatorId = this.moderatorId;
     if (!moderatorId) {
-      throw new Error("Moderator user not found");
+      const accessToken = await this.getAccessToken();
+      const modResponse = await fetchWithTimeout(
+        `https://api.twitch.tv/helix/users?login=${encodeURIComponent(this.botUsername)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Client-Id": this.clientId
+          }
+        }
+      );
+
+      if (!modResponse.ok) {
+        throw new Error(`Failed to get moderator ID: ${modResponse.status}`);
+      }
+
+      const modData = await modResponse.json();
+      moderatorId = modData.data?.[0]?.id;
+
+      if (!moderatorId) {
+        throw new Error("Moderator user not found");
+      }
+
+      this.moderatorId = moderatorId;
     }
 
     return { broadcasterId, moderatorId };
@@ -112,7 +143,7 @@ export class TwitchAPIClient {
       {
         method: "DELETE",
         headers: {
-          "Authorization": `Bearer ${accessToken}`,
+          Authorization: `Bearer ${accessToken}`,
           "Client-Id": this.clientId
         }
       }
@@ -140,7 +171,7 @@ export class TwitchAPIClient {
       {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${accessToken}`,
+          Authorization: `Bearer ${accessToken}`,
           "Client-Id": this.clientId,
           "Content-Type": "application/json"
         },
@@ -174,7 +205,7 @@ export class TwitchAPIClient {
       {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${accessToken}`,
+          Authorization: `Bearer ${accessToken}`,
           "Client-Id": this.clientId,
           "Content-Type": "application/json"
         },
@@ -208,7 +239,7 @@ export class TwitchAPIClient {
       {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${accessToken}`,
+          Authorization: `Bearer ${accessToken}`,
           "Client-Id": this.clientId,
           "Content-Type": "application/json"
         },
@@ -248,7 +279,7 @@ export class TwitchAPIClient {
 
       const response = await fetchWithTimeout(url.toString(), {
         headers: {
-          "Authorization": `Bearer ${accessToken}`,
+          Authorization: `Bearer ${accessToken}`,
           "Client-Id": this.clientId
         }
       });
@@ -274,58 +305,14 @@ export class TwitchAPIClient {
    */
   async addBlockedTerm(channelLogin, term) {
     const accessToken = await this.getAccessToken();
+    const { broadcasterId, moderatorId } = await this.getBroadcasterAndModeratorIds(channelLogin);
 
-    // Get broadcaster ID
-    const userResponse = await fetchWithTimeout(
-      `https://api.twitch.tv/helix/users?login=${encodeURIComponent(channelLogin)}`,
-      {
-        headers: {
-          "Authorization": `Bearer ${accessToken}`,
-          "Client-Id": this.clientId
-        }
-      }
-    );
-
-    if (!userResponse.ok) {
-      throw new Error(`Failed to fetch user info: ${userResponse.status}`);
-    }
-
-    const userData = await userResponse.json();
-    if (!userData.data?.length) {
-      throw new Error(`Channel not found: ${channelLogin}`);
-    }
-
-    const broadcasterId = userData.data[0].id;
-
-    // Get moderator ID (the authenticated user making the request)
-    const moderatorResponse = await fetchWithTimeout(
-      "https://api.twitch.tv/helix/users",
-      {
-        headers: {
-          "Authorization": `Bearer ${accessToken}`,
-          "Client-Id": this.clientId
-        }
-      }
-    );
-
-    if (!moderatorResponse.ok) {
-      throw new Error(`Failed to fetch moderator info: ${moderatorResponse.status}`);
-    }
-
-    const moderatorData = await moderatorResponse.json();
-    if (!moderatorData.data?.length) {
-      throw new Error("Could not get authenticated user ID");
-    }
-
-    const moderatorId = moderatorData.data[0].id;
-
-    // Add blocked term
     const addResponse = await fetchWithTimeout(
       `https://api.twitch.tv/helix/moderation/blocked_terms?broadcaster_id=${broadcasterId}&moderator_id=${moderatorId}`,
       {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${accessToken}`,
+          Authorization: `Bearer ${accessToken}`,
           "Client-Id": this.clientId,
           "Content-Type": "application/json"
         },
@@ -351,7 +338,7 @@ export class TwitchAPIClient {
     const results = new Map();
 
     // Normalize logins - strip # prefix if present (tmi.js mutates channel arrays)
-    const normalizedLogins = logins.map(l => l.replace(/^#/, "").toLowerCase());
+    const normalizedLogins = logins.map((l) => l.replace(/^#/, "").toLowerCase());
 
     // Initialize all as offline
     for (const login of normalizedLogins) {
@@ -362,17 +349,14 @@ export class TwitchAPIClient {
     const batchSize = 100;
     for (let i = 0; i < normalizedLogins.length; i += batchSize) {
       const batch = normalizedLogins.slice(i, i + batchSize);
-      const params = batch.map(l => `user_login=${encodeURIComponent(l)}`).join("&");
+      const params = batch.map((l) => `user_login=${encodeURIComponent(l)}`).join("&");
 
-      const response = await fetchWithTimeout(
-        `https://api.twitch.tv/helix/streams?${params}`,
-        {
-          headers: {
-            "Authorization": `Bearer ${accessToken}`,
-            "Client-Id": this.clientId
-          }
+      const response = await fetchWithTimeout(`https://api.twitch.tv/helix/streams?${params}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Client-Id": this.clientId
         }
-      );
+      });
 
       if (!response.ok) {
         console.error(`Failed to get stream status: ${response.status}`);

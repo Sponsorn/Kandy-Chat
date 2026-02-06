@@ -42,7 +42,7 @@ export function createDashboardSocket(server) {
     let recentChat = [];
     try {
       const channels = botState.twitchChannels || [];
-      const historyPromises = channels.map(ch =>
+      const historyPromises = channels.map((ch) =>
         loadMessages(ch.replace(/^#/, ""), 0, 250).catch(() => [])
       );
       const channelHistories = await Promise.all(historyPromises);
@@ -58,7 +58,7 @@ export function createDashboardSocket(server) {
 
       // Merge with in-memory buffer (may have newer messages not yet flushed)
       const memoryChat = botState.getRecentChat(null, 200);
-      const seenIds = new Set(recentChat.map(m => m.id));
+      const seenIds = new Set(recentChat.map((m) => m.id));
       for (const msg of memoryChat) {
         if (!seenIds.has(msg.id)) {
           recentChat.push(msg);

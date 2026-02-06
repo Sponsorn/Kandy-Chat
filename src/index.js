@@ -25,7 +25,8 @@ import { relaySystemMessage, startRelayCleanup } from "./services/relayService.j
 import {
   refreshAndApplyTwitchToken,
   scheduleTokenRefresh,
-  createTokenProvider
+  createTokenProvider,
+  loadPersistedRefreshToken
 } from "./services/tokenService.js";
 
 // Add timestamps to all console output
@@ -53,6 +54,13 @@ const {
 
 // Initialize state from environment
 botState.initFromEnv(process.env);
+
+// Override refresh token from persisted storage if available
+const persistedToken = await loadPersistedRefreshToken();
+if (persistedToken) {
+  botState.currentRefreshToken = persistedToken;
+  console.log("Loaded refresh token from data/tokens.json");
+}
 
 // Build filters and store in state
 const filters = buildFilters(process.env);
@@ -157,9 +165,11 @@ function createRelaySystemMessage(channelId) {
 // Discord ready handler
 discordClient.once("clientReady", async () => {
   try {
-    const channelIds = DISCORD_CHANNEL_ID.split(",").map(id => id.trim()).filter(Boolean);
+    const channelIds = DISCORD_CHANNEL_ID.split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
     const resolved = await Promise.all(
-      channelIds.map(async id => {
+      channelIds.map(async (id) => {
         try {
           return await discordClient.channels.fetch(id);
         } catch (error) {
@@ -209,17 +219,24 @@ async function start() {
 
   console.log(`Attempting to join Twitch channels: ${botState.twitchChannels.join(", ")}`);
   if (botState.relayChannels) {
-    console.log(`Relay filter active - only relaying: ${Array.from(botState.relayChannels).join(", ")}`);
+    console.log(
+      `Relay filter active - only relaying: ${Array.from(botState.relayChannels).join(", ")}`
+    );
   }
 
   await connectTwitch(oauthToken, TWITCH_USERNAME, process.env, DISCORD_CHANNEL_ID);
   console.log("Relay online: Twitch chat -> Discord channel");
 
   // Record bot start in audit log
-  botState.recordAuditEvent("start", "system", {
-    channels: botState.twitchChannels.join(", "),
-    reason: "Bot started"
-  }, "system");
+  botState.recordAuditEvent(
+    "start",
+    "system",
+    {
+      channels: botState.twitchChannels.join(", "),
+      reason: "Bot started"
+    },
+    "system"
+  );
 
   // Start relay cleanup interval
   startRelayCleanup();
@@ -232,7 +249,10 @@ async function start() {
       freezeOnlineResolve = null;
     }
   };
-  const freezeWaitForOnline = () => new Promise(resolve => { freezeOnlineResolve = resolve; });
+  const freezeWaitForOnline = () =>
+    new Promise((resolve) => {
+      freezeOnlineResolve = resolve;
+    });
 
   const webServer = await startWebServer(process.env, {
     logger: console,
@@ -240,7 +260,10 @@ async function start() {
     updateBlacklistFromEntries,
     onEvent: async (payload) => {
       const type = payload?.subscription?.type || "unknown";
-      const broadcasterName = payload?.event?.broadcaster_user_name || payload?.event?.broadcaster_user_login || "unknown";
+      const broadcasterName =
+        payload?.event?.broadcaster_user_name ||
+        payload?.event?.broadcaster_user_login ||
+        "unknown";
       console.log(`EventSub notification: ${type} for ${broadcasterName}`);
 
       if (type === "stream.online") {
@@ -270,16 +293,20 @@ async function start() {
         console.log(`${broadcasterName} went offline on Twitch`);
         botState.setStreamStatus(broadcasterName.toLowerCase(), "offline");
 
-        const offlineAlertChannels = process.env.OFFLINE_ALERT_CHANNELS
-          ?.split(",").map(c => c.trim().toLowerCase()).filter(Boolean);
+        const offlineAlertChannels = process.env.OFFLINE_ALERT_CHANNELS?.split(",")
+          .map((c) => c.trim().toLowerCase())
+          .filter(Boolean);
 
-        if (offlineAlertChannels?.length &&
-            !offlineAlertChannels.includes(broadcasterName.toLowerCase())) {
+        if (
+          offlineAlertChannels?.length &&
+          !offlineAlertChannels.includes(broadcasterName.toLowerCase())
+        ) {
           console.log(`Skipping offline alert - ${broadcasterName} not in OFFLINE_ALERT_CHANNELS`);
           return;
         }
 
-        const raidSuppressMs = (parseInt(process.env.RAID_SUPPRESS_WINDOW_SECONDS, 10) || 30) * 1000;
+        const raidSuppressMs =
+          (parseInt(process.env.RAID_SUPPRESS_WINDOW_SECONDS, 10) || 30) * 1000;
         if (botState.hasRecentRaid(broadcasterName, raidSuppressMs)) {
           console.log(`Skipping offline alert - ${broadcasterName} raided recently`);
           return;
@@ -303,8 +330,10 @@ async function start() {
           console.error("Failed to send offline stream alert", error);
         }
       } else if (type === "channel.raid") {
-        const fromBroadcaster = payload?.event?.from_broadcaster_user_name || payload?.event?.from_broadcaster_user_login;
-        const toBroadcaster = payload?.event?.to_broadcaster_user_name || payload?.event?.to_broadcaster_user_login;
+        const fromBroadcaster =
+          payload?.event?.from_broadcaster_user_name || payload?.event?.from_broadcaster_user_login;
+        const toBroadcaster =
+          payload?.event?.to_broadcaster_user_name || payload?.event?.to_broadcaster_user_login;
         const viewers = payload?.event?.viewers || 0;
         console.log(`Raid: ${fromBroadcaster} raided ${toBroadcaster} with ${viewers} viewers`);
 
@@ -368,14 +397,18 @@ async function start() {
         } catch (error) {
           console.error("Failed to edit freeze message:", error);
           // Fall back to sending new message
-          relaySystemMessage(`${channel} motion detected again`, DISCORD_CHANNEL_ID).catch(err => {
-            console.error("Failed to send recovery alert", err);
-          });
+          relaySystemMessage(`${channel} motion detected again`, DISCORD_CHANNEL_ID).catch(
+            (err) => {
+              console.error("Failed to send recovery alert", err);
+            }
+          );
         }
       } else {
-        relaySystemMessage(`${channel} motion detected again`, DISCORD_CHANNEL_ID).catch(error => {
-          console.error("Failed to send recovery alert", error);
-        });
+        relaySystemMessage(`${channel} motion detected again`, DISCORD_CHANNEL_ID).catch(
+          (error) => {
+            console.error("Failed to send recovery alert", error);
+          }
+        );
       }
     },
     onOffline: () => {
@@ -405,13 +438,18 @@ async function start() {
   if (tokenInfo?.expiresIn) {
     scheduleTokenRefresh(tokenInfo.expiresIn, credentials, async (newTokenInfo) => {
       if (newTokenInfo?.oauthToken) {
-        await connectTwitch(newTokenInfo.oauthToken, TWITCH_USERNAME, process.env, DISCORD_CHANNEL_ID);
+        await connectTwitch(
+          newTokenInfo.oauthToken,
+          TWITCH_USERNAME,
+          process.env,
+          DISCORD_CHANNEL_ID
+        );
       }
     });
   }
 }
 
-start().catch(error => {
+start().catch((error) => {
   console.error("Startup failed", error);
   process.exit(1);
 });

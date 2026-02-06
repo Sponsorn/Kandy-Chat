@@ -1,7 +1,14 @@
 import crypto from "node:crypto";
 import { join } from "node:path";
 import { parseBool } from "../envUtils.js";
-import { sessionMiddleware, startSessionCleanup, destroySession, createLogoutCookie, Permissions, requireAuth } from "../auth/sessionManager.js";
+import {
+  sessionMiddleware,
+  startSessionCleanup,
+  destroySession,
+  createLogoutCookie,
+  Permissions,
+  requireAuth
+} from "../auth/sessionManager.js";
 import { createDiscordAuthRoutes } from "../auth/discordOAuth.js";
 import { createTwitchAuthRoutes } from "../auth/twitchOAuth.js";
 import { createMonitoringRoutes } from "./routes/monitoringRoutes.js";
@@ -37,12 +44,7 @@ async function loadExpress() {
  * Handles EventSub webhooks, dashboard API, and static files
  */
 export async function startWebServer(env, options = {}) {
-  const {
-    logger,
-    onEvent,
-    twitchAPIClient,
-    updateBlacklistFromEntries
-  } = options;
+  const { logger, onEvent, twitchAPIClient, updateBlacklistFromEntries } = options;
 
   const dashboardEnabled = parseBool(env.DASHBOARD_ENABLED, false);
   const eventsubEnabled = parseBool(env.EVENTSUB_ENABLED, false);
@@ -64,11 +66,13 @@ export async function startWebServer(env, options = {}) {
   app.set("trust proxy", 1);
 
   // Body parsing with raw body capture for EventSub signature verification
-  app.use(express.json({
-    verify: (req, res, buf) => {
-      req.rawBody = buf.toString("utf8");
-    }
-  }));
+  app.use(
+    express.json({
+      verify: (req, res, buf) => {
+        req.rawBody = buf.toString("utf8");
+      }
+    })
+  );
 
   // Session middleware for dashboard
   if (dashboardEnabled) {
@@ -164,13 +168,14 @@ export async function startWebServer(env, options = {}) {
 
     // Discord OAuth
     if (env.DISCORD_CLIENT_ID && env.DASHBOARD_DISCORD_CLIENT_SECRET) {
+      const { ADMIN_ROLE_IDS, MOD_ROLE_IDS } = await import("../utils/permissions.js");
       createDiscordAuthRoutes(app, {
         clientId: env.DISCORD_CLIENT_ID,
         clientSecret: env.DASHBOARD_DISCORD_CLIENT_SECRET,
         redirectUri: `https://${dashboardDomain}/auth/discord/callback`,
         guildId: env.DISCORD_GUILD_ID,
-        adminRoleIds: env.ADMIN_ROLE_ID,
-        modRoleIds: env.MOD_ROLE_ID,
+        adminRoleIds: ADMIN_ROLE_IDS,
+        modRoleIds: MOD_ROLE_IDS,
         dashboardDomain,
         cookieSecure
       });
@@ -183,7 +188,7 @@ export async function startWebServer(env, options = {}) {
         clientId: env.TWITCH_CLIENT_ID,
         clientSecret: env.TWITCH_CLIENT_SECRET,
         redirectUri: `https://${dashboardDomain}/auth/twitch/callback`,
-        configuredChannels: env.TWITCH_CHANNEL?.split(",").map(c => c.trim().toLowerCase()) || [],
+        configuredChannels: env.TWITCH_CHANNEL?.split(",").map((c) => c.trim().toLowerCase()) || [],
         dashboardDomain,
         cookieSecure
       });
@@ -208,7 +213,9 @@ export async function startWebServer(env, options = {}) {
           avatar: req.session.user.avatar
         },
         permission: req.session.permission,
-        permissionName: Object.keys(Permissions).find(k => Permissions[k] === req.session.permission) || "unknown"
+        permissionName:
+          Object.keys(Permissions).find((k) => Permissions[k] === req.session.permission) ||
+          "unknown"
       });
     });
 
@@ -233,7 +240,11 @@ export async function startWebServer(env, options = {}) {
 
     // SPA fallback - serve index.html for non-API routes
     app.get("*", (req, res, next) => {
-      if (req.path.startsWith("/api") || req.path.startsWith("/auth") || req.path === eventsubPath) {
+      if (
+        req.path.startsWith("/api") ||
+        req.path.startsWith("/auth") ||
+        req.path === eventsubPath
+      ) {
         return next();
       }
       res.sendFile(join(publicPath, "index.html"));

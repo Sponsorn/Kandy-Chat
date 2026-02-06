@@ -89,7 +89,9 @@ async function main() {
   const accessToken = await getAppAccessToken();
 
   // Support comma-separated list of broadcasters
-  const broadcasters = EVENTSUB_BROADCASTER.split(",").map(b => b.trim()).filter(Boolean);
+  const broadcasters = EVENTSUB_BROADCASTER.split(",")
+    .map((b) => b.trim())
+    .filter(Boolean);
 
   for (const broadcaster of broadcasters) {
     console.log(`Setting up EventSub for ${broadcaster}...`);

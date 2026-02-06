@@ -1,12 +1,23 @@
 import { html } from "htm/preact";
 import { useState, useEffect, useRef } from "preact/hooks";
-import { streamStatus, freezeDetectedAt, chatMessages, canModerate, chatStats, recentRaids } from "../state.js";
+import {
+  streamStatus,
+  freezeDetectedAt,
+  chatMessages,
+  canModerate,
+  chatStats,
+  recentRaids
+} from "../state.js";
 import { mod, blacklist } from "../api.js";
 import { UserLookup } from "./UserLookup.js";
 
 function formatTime(timestamp) {
   const date = new Date(timestamp);
-  return date.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return date.toLocaleTimeString("sv-SE", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
 }
 
 function ChatMessage({ message, onUserClick }) {
@@ -64,7 +75,11 @@ function ChatMessage({ message, onUserClick }) {
   };
 
   return html`
-    <div class="chat-message ${isSuspicious ? "suspicious" : ""} ${isRelayed ? "relayed" : ""} ${isDeleted ? "deleted" : ""}">
+    <div
+      class="chat-message ${isSuspicious ? "suspicious" : ""} ${isRelayed
+        ? "relayed"
+        : ""} ${isDeleted ? "deleted" : ""}"
+    >
       <span class="chat-timestamp">${formatTime(message.timestamp)}</span>
       <div class="chat-content">
         ${isBroadcaster && html`<span class="chat-badge broadcaster" title="Broadcaster">📺</span>`}
@@ -75,13 +90,18 @@ function ChatMessage({ message, onUserClick }) {
         <span
           class="chat-username chat-username-clickable"
           style="color: ${nameColor}"
-          onClick=${() => onUserClick && onUserClick(message.username || message.twitchUsername, channel)}
+          onClick=${() =>
+            onUserClick && onUserClick(message.username || message.twitchUsername, channel)}
           title="Click to view user info"
-        >${username}</span>
+          >${username}</span
+        >
         <span>: </span>
         <span>${isDeleted ? html`<s>${content}</s>` : content}</span>
       </div>
-      ${canModerate.value && !isPrivileged && !isDeleted && html`
+      ${canModerate.value &&
+      !isPrivileged &&
+      !isDeleted &&
+      html`
         <div class="chat-actions">
           <button class="btn-icon" title="Delete" onClick=${handleDelete}>🗑️</button>
           <button class="btn-icon" title="Timeout" onClick=${handleTimeout}>⏱️</button>
@@ -99,7 +119,9 @@ export function ChannelColumn({ channel, displayName }) {
   const [messageList, setMessageList] = useState([]);
   const [autoScroll, setAutoScroll] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [stats, setStats] = useState(chatStats.value[channel] || { messageCount: 0, uniqueUsers: 0, messagesPerHour: 0 });
+  const [stats, setStats] = useState(
+    chatStats.value[channel] || { messageCount: 0, uniqueUsers: 0, messagesPerHour: 0 }
+  );
   const [latestRaid, setLatestRaid] = useState(null);
   const [lookupUser, setLookupUser] = useState(null);
   const chatFeedRef = useRef(null);
@@ -120,7 +142,7 @@ export function ChannelColumn({ channel, displayName }) {
     function updateMessages() {
       // Filter by channel (support both old twitchChannel and new channel format)
       const filtered = chatMessages.value.filter(
-        m => (m.twitchChannel || m.channel)?.toLowerCase() === channel.toLowerCase()
+        (m) => (m.twitchChannel || m.channel)?.toLowerCase() === channel.toLowerCase()
       );
       // Reverse so newest is at top
       setMessageList([...filtered].reverse());
@@ -160,12 +182,14 @@ export function ChannelColumn({ channel, displayName }) {
   }, [messageList, autoScroll]);
 
   // Filter messages by search term
-  const filteredMessages = messageList.filter(m => {
+  const filteredMessages = messageList.filter((m) => {
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
-    return m.message?.toLowerCase().includes(term) ||
-           m.username?.toLowerCase().includes(term) ||
-           m.displayName?.toLowerCase().includes(term);
+    return (
+      m.message?.toLowerCase().includes(term) ||
+      m.username?.toLowerCase().includes(term) ||
+      m.displayName?.toLowerCase().includes(term)
+    );
   });
 
   const getStreamStatusClass = () => {
@@ -192,11 +216,18 @@ export function ChannelColumn({ channel, displayName }) {
     <div class="channel-column">
       <div class="channel-header">${displayName}</div>
 
-      ${latestRaid && html`
+      ${latestRaid &&
+      html`
         <div class="raid-notification">
           <span class="raid-icon">🎉</span>
           <span>${latestRaid.from} raided with ${latestRaid.viewers} viewers!</span>
-          <button class="btn-icon raid-dismiss" onClick=${() => setLatestRaid(null)} title="Dismiss">✕</button>
+          <button
+            class="btn-icon raid-dismiss"
+            onClick=${() => setLatestRaid(null)}
+            title="Dismiss"
+          >
+            ✕
+          </button>
         </div>
       `}
 
@@ -226,7 +257,7 @@ export function ChannelColumn({ channel, displayName }) {
               style="width: 120px; padding: 0.25rem 0.5rem; font-size: 0.75rem;"
             />
             <button
-              class="btn btn-sm ${autoScroll ? 'btn-primary' : 'btn-secondary'}"
+              class="btn btn-sm ${autoScroll ? "btn-primary" : "btn-secondary"}"
               onClick=${() => {
                 const newValue = !autoScroll;
                 setAutoScroll(newValue);
@@ -245,18 +276,24 @@ export function ChannelColumn({ channel, displayName }) {
         <div class="chat-feed" ref=${chatFeedRef}>
           ${filteredMessages.length === 0
             ? html`
-              <div class="empty-state-small">
-                <p>${searchTerm ? "No matching messages" : "No messages yet"}</p>
-              </div>
-            `
-            : filteredMessages.map(msg => html`
-              <${ChatMessage} key=${msg.id} message=${msg} onUserClick=${(user) => setLookupUser(user)} />
-            `)
-          }
+                <div class="empty-state-small">
+                  <p>${searchTerm ? "No matching messages" : "No messages yet"}</p>
+                </div>
+              `
+            : filteredMessages.map(
+                (msg) => html`
+                  <${ChatMessage}
+                    key=${msg.id}
+                    message=${msg}
+                    onUserClick=${(user) => setLookupUser(user)}
+                  />
+                `
+              )}
         </div>
       </div>
 
-      ${lookupUser && html`
+      ${lookupUser &&
+      html`
         <${UserLookup}
           username=${lookupUser}
           channel=${channel}

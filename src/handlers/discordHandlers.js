@@ -1,6 +1,6 @@
-import { PermissionsBitField } from "discord.js";
 import botState from "../state/BotState.js";
 import { handleSlashCommand } from "../commands/commandRegistry.js";
+import { hasPrivilegedRole } from "../utils/permissions.js";
 
 /**
  * Resolve which moderation action to take based on reaction emoji
@@ -48,22 +48,7 @@ export async function handleReactionAdd(reaction, user, twitchAPIClient) {
   }
 
   // Check permissions
-  const adminRoleAllowed =
-    process.env.ADMIN_ROLE_ID &&
-    process.env.ADMIN_ROLE_ID.split(",")
-      .map(id => id.trim())
-      .filter(Boolean)
-      .some(id => member.roles.cache.has(id));
-
-  const modRoleAllowed =
-    process.env.MOD_ROLE_ID &&
-    process.env.MOD_ROLE_ID.split(",")
-      .map(id => id.trim())
-      .filter(Boolean)
-      .some(id => member.roles.cache.has(id));
-
-  const isAdmin = member.permissions.has(PermissionsBitField.Flags.Administrator);
-  if (!adminRoleAllowed && !modRoleAllowed && !isAdmin) return;
+  if (!hasPrivilegedRole(member)) return;
 
   const relay = botState.getRelayByDiscordId(reaction.message.id);
   if (!relay || !botState.twitchClient) return;
@@ -81,7 +66,9 @@ export async function handleReactionAdd(reaction, user, twitchAPIClient) {
   // Extract original message content
   const messageContent = reaction.message.content;
   const twitchMessageMatch = messageContent.match(/\*\*.*?\*\*: (.+?)(?:⚠️|$)/);
-  const twitchMessageText = twitchMessageMatch ? twitchMessageMatch[1].trim() : "(message unavailable)";
+  const twitchMessageText = twitchMessageMatch
+    ? twitchMessageMatch[1].trim()
+    : "(message unavailable)";
 
   try {
     if (reactionAction === "delete") {
@@ -92,7 +79,11 @@ export async function handleReactionAdd(reaction, user, twitchAPIClient) {
     } else if (reactionAction === "ban") {
       await twitchAPIClient.banUser(channelName, relay.twitchUsername);
     } else if (reactionAction === "warn") {
-      await twitchAPIClient.warnUser(channelName, relay.twitchUsername, "Violating community guidelines");
+      await twitchAPIClient.warnUser(
+        channelName,
+        relay.twitchUsername,
+        "Violating community guidelines"
+      );
     }
 
     // Record moderation action

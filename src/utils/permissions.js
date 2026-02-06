@@ -1,5 +1,15 @@
 import { PermissionsBitField } from "discord.js";
 
+// Parse role IDs once at module level
+export const ADMIN_ROLE_IDS = (process.env.ADMIN_ROLE_ID || "")
+  .split(",")
+  .map((id) => id.trim())
+  .filter(Boolean);
+export const MOD_ROLE_IDS = (process.env.MOD_ROLE_ID || "")
+  .split(",")
+  .map((id) => id.trim())
+  .filter(Boolean);
+
 /**
  * Check if a Discord member has privileged role (admin or mod)
  * @param {GuildMember} member - Discord guild member
@@ -7,22 +17,12 @@ import { PermissionsBitField } from "discord.js";
  */
 export function hasPrivilegedRole(member) {
   const adminRoleAllowed =
-    process.env.ADMIN_ROLE_ID &&
-    process.env.ADMIN_ROLE_ID.split(",")
-      .map((id) => id.trim())
-      .filter(Boolean)
-      .some((id) => member?.roles?.cache?.has(id));
+    ADMIN_ROLE_IDS.length > 0 && ADMIN_ROLE_IDS.some((id) => member?.roles?.cache?.has(id));
 
   const modRoleAllowed =
-    process.env.MOD_ROLE_ID &&
-    process.env.MOD_ROLE_ID.split(",")
-      .map((id) => id.trim())
-      .filter(Boolean)
-      .some((id) => member?.roles?.cache?.has(id));
+    MOD_ROLE_IDS.length > 0 && MOD_ROLE_IDS.some((id) => member?.roles?.cache?.has(id));
 
-  const isAdmin = member?.permissions?.has(
-    PermissionsBitField.Flags.Administrator
-  );
+  const isAdmin = member?.permissions?.has(PermissionsBitField.Flags.Administrator);
 
   return Boolean(adminRoleAllowed || modRoleAllowed || isAdmin);
 }
@@ -34,15 +34,9 @@ export function hasPrivilegedRole(member) {
  */
 export function hasAdminRole(member) {
   const adminRoleAllowed =
-    process.env.ADMIN_ROLE_ID &&
-    process.env.ADMIN_ROLE_ID.split(",")
-      .map((id) => id.trim())
-      .filter(Boolean)
-      .some((id) => member?.roles?.cache?.has(id));
+    ADMIN_ROLE_IDS.length > 0 && ADMIN_ROLE_IDS.some((id) => member?.roles?.cache?.has(id));
 
-  const isAdmin = member?.permissions?.has(
-    PermissionsBitField.Flags.Administrator
-  );
+  const isAdmin = member?.permissions?.has(PermissionsBitField.Flags.Administrator);
 
   return Boolean(adminRoleAllowed || isAdmin);
 }

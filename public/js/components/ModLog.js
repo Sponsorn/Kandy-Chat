@@ -14,13 +14,16 @@ function ModLogEntry({ action }) {
         <span class="chat-timestamp">${formatTime(action.timestamp)}</span>
       </div>
       <div style="color: var(--text-secondary);">
-        <strong>${action.moderator}</strong> ${action.action === "delete" ? "deleted message from" : `${action.action}ed`} <strong>${action.target}</strong>
-        ${action.details?.channel && html`
-          <span> in ${action.details.channel}</span>
-        `}
+        <strong>${action.moderator}</strong> ${action.action === "delete"
+          ? "deleted message from"
+          : `${action.action}ed`} <strong>${action.target}</strong>
+        ${action.details?.channel && html` <span> in ${action.details.channel}</span> `}
       </div>
-      ${action.details?.message && html`
-        <div style="margin-top: 0.5rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: 4px; font-size: 0.875rem;">
+      ${action.details?.message &&
+      html`
+        <div
+          style="margin-top: 0.5rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: 4px; font-size: 0.875rem;"
+        >
           ${action.details.message}
         </div>
       `}
@@ -54,9 +57,7 @@ export function ModLog() {
         <span class="text-muted">${actions.length} actions</span>
       </div>
       <div class="card-body" style="padding: 0; max-height: 600px; overflow-y: auto;">
-        ${actions.map(action => html`
-          <${ModLogEntry} key=${action.id} action=${action} />
-        `)}
+        ${actions.map((action) => html` <${ModLogEntry} key=${action.id} action=${action} /> `)}
       </div>
     </div>
   `;

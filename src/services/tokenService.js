@@ -5,29 +5,32 @@ import botState from "../state/BotState.js";
 
 let tokenRefreshTimeout = null;
 
+const TOKENS_PATH = join(process.cwd(), "data", "tokens.json");
+
 /**
- * Persist refresh token to .env file
+ * Persist refresh token to data/tokens.json
  */
 async function persistRefreshToken(refreshToken) {
-  const envPath = join(process.cwd(), ".env");
-  let content;
+  const data = {
+    refreshToken,
+    updatedAt: new Date().toISOString()
+  };
+  await fs.mkdir(join(process.cwd(), "data"), { recursive: true });
+  await fs.writeFile(TOKENS_PATH, JSON.stringify(data, null, 2), "utf8");
+}
+
+/**
+ * Load persisted refresh token from data/tokens.json
+ * @returns {Promise<string|null>} The persisted refresh token, or null if not found
+ */
+export async function loadPersistedRefreshToken() {
   try {
-    content = await fs.readFile(envPath, "utf8");
-  } catch (error) {
-    console.warn("Failed to read .env for refresh token update", error);
-    return;
+    const content = await fs.readFile(TOKENS_PATH, "utf8");
+    const data = JSON.parse(content);
+    return data.refreshToken || null;
+  } catch {
+    return null;
   }
-
-  const line = `TWITCH_REFRESH_TOKEN=${refreshToken}`;
-  if (content.includes("TWITCH_REFRESH_TOKEN=")) {
-    const updated = content.replace(/^TWITCH_REFRESH_TOKEN=.*$/m, line);
-    if (updated !== content) {
-      await fs.writeFile(envPath, updated, "utf8");
-    }
-    return;
-  }
-
-  await fs.writeFile(envPath, `${content}\n${line}\n`, "utf8");
 }
 
 /**
@@ -59,7 +62,7 @@ export async function refreshAndApplyTwitchToken(credentials) {
   });
 
   if (refreshed.refreshToken !== previousRefreshToken) {
-    persistRefreshToken(refreshed.refreshToken).catch(error => {
+    persistRefreshToken(refreshed.refreshToken).catch((error) => {
       console.warn("Failed to persist Twitch refresh token", error);
     });
   }

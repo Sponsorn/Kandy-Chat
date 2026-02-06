@@ -24,7 +24,8 @@ export function ControlPanel() {
   };
 
   const handleStop = async () => {
-    if (!confirm("Are you sure you want to stop the bot? It will not restart automatically.")) return;
+    if (!confirm("Are you sure you want to stop the bot? It will not restart automatically."))
+      return;
 
     setStopping(true);
     setMessage(null);
@@ -45,8 +46,12 @@ export function ControlPanel() {
         <span class="card-title">Bot Control</span>
       </div>
       <div class="card-body">
-        ${message && html`
-          <div class="alert ${message.type === "error" ? "alert-error" : "alert-success"}" style="margin-bottom: 1rem;">
+        ${message &&
+        html`
+          <div
+            class="alert ${message.type === "error" ? "alert-error" : "alert-success"}"
+            style="margin-bottom: 1rem;"
+          >
             ${message.text}
           </div>
         `}
@@ -64,20 +69,24 @@ export function ControlPanel() {
             ${restarting ? "Restarting..." : "🔄 Restart Bot"}
           </button>
 
-          <button
-            class="btn btn-danger"
-            onClick=${handleStop}
-            disabled=${restarting || stopping}
-          >
+          <button class="btn btn-danger" onClick=${handleStop} disabled=${restarting || stopping}>
             ${stopping ? "Stopping..." : "⛔ Stop Bot"}
           </button>
         </div>
 
-        <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
+        <div
+          style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);"
+        >
           <h4 style="margin-bottom: 0.5rem;">Actions</h4>
           <ul style="color: var(--text-secondary); padding-left: 1.5rem;">
-            <li><strong>Restart:</strong> Stops and restarts the bot process. The bot will reconnect to Discord and Twitch.</li>
-            <li><strong>Stop:</strong> Stops the bot and prevents automatic restart. Use the Restart command to start again.</li>
+            <li>
+              <strong>Restart:</strong> Stops and restarts the bot process. The bot will reconnect
+              to Discord and Twitch.
+            </li>
+            <li>
+              <strong>Stop:</strong> Stops the bot and prevents automatic restart. Use the Restart
+              command to start again.
+            </li>
           </ul>
         </div>
       </div>

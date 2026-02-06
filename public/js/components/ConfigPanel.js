@@ -8,11 +8,12 @@ function ConfigSection({ title, children, badge = null }) {
     <div class="card" style="margin-bottom: 1rem;">
       <div class="card-header" style="display: flex; align-items: center; gap: 0.5rem;">
         <span class="card-title">${title}</span>
-        ${badge && html`<span class="badge" style="font-size: 0.7rem; padding: 0.2rem 0.5rem;">${badge}</span>`}
+        ${badge &&
+        html`<span class="badge" style="font-size: 0.7rem; padding: 0.2rem 0.5rem;"
+          >${badge}</span
+        >`}
       </div>
-      <div class="card-body">
-        ${children}
-      </div>
+      <div class="card-body">${children}</div>
     </div>
   `;
 }
@@ -26,7 +27,9 @@ function ConfigItem({ label, value }) {
   };
 
   return html`
-    <div style="display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid var(--border-color);">
+    <div
+      style="display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid var(--border-color);"
+    >
       <span style="color: var(--text-secondary);">${label}</span>
       <span style="font-family: monospace;">${displayValue()}</span>
     </div>
@@ -38,12 +41,22 @@ function ToggleSwitch({ label, checked, onChange, disabled = false, description 
   const effectiveChecked = disabled ? false : checked;
 
   return html`
-    <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid var(--border-color);">
+    <div
+      style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid var(--border-color);"
+    >
       <div>
-        <span style=${{ color: disabled ? "var(--text-muted)" : "var(--text-primary)" }}>${label}</span>
-        ${description && html`<p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0.25rem 0 0 0;">${description}</p>`}
+        <span style=${{ color: disabled ? "var(--text-muted)" : "var(--text-primary)" }}
+          >${label}</span
+        >
+        ${description &&
+        html`<p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0.25rem 0 0 0;">
+          ${description}
+        </p>`}
       </div>
-      <label class="toggle-switch" style="position: relative; display: inline-block; width: 48px; height: 26px;">
+      <label
+        class="toggle-switch"
+        style="position: relative; display: inline-block; width: 48px; height: 26px;"
+      >
         <input
           type="checkbox"
           checked=${checked}
@@ -59,8 +72,16 @@ function ToggleSwitch({ label, checked, onChange, disabled = false, description 
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: disabled ? "var(--bg-tertiary)" : (effectiveChecked ? "var(--accent-primary)" : "var(--bg-hover)"),
-            border: disabled ? "1px solid var(--border-color)" : (effectiveChecked ? "none" : "2px solid var(--border-color)"),
+            backgroundColor: disabled
+              ? "var(--bg-tertiary)"
+              : effectiveChecked
+                ? "var(--accent-primary)"
+                : "var(--bg-hover)",
+            border: disabled
+              ? "1px solid var(--border-color)"
+              : effectiveChecked
+                ? "none"
+                : "2px solid var(--border-color)",
             transition: "0.3s",
             borderRadius: "26px"
           }}
@@ -92,7 +113,9 @@ function TemplateEditor({ label, value, onChange, tags = [], placeholder = "" })
 
   return html`
     <div style="margin-bottom: 1rem;">
-      <label style="display: block; color: var(--text-secondary); margin-bottom: 0.5rem; font-size: 0.9rem;">
+      <label
+        style="display: block; color: var(--text-secondary); margin-bottom: 0.5rem; font-size: 0.9rem;"
+      >
         ${label}
       </label>
       <textarea
@@ -112,26 +135,31 @@ function TemplateEditor({ label, value, onChange, tags = [], placeholder = "" })
           resize: "vertical"
         }}
       />
-      ${tags.length > 0 && html`
+      ${tags.length > 0 &&
+      html`
         <div style="margin-top: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.25rem;">
-          <span style="color: var(--text-secondary); font-size: 0.8rem; margin-right: 0.5rem;">Insert tag:</span>
-          ${tags.map(tag => html`
-            <button
-              type="button"
-              onClick=${() => insertTag(tag)}
-              style=${{
-                padding: "0.2rem 0.5rem",
-                fontSize: "0.75rem",
-                backgroundColor: "var(--bg-tertiary)",
-                border: "1px solid var(--border-color)",
-                borderRadius: "3px",
-                color: "var(--text-secondary)",
-                cursor: "pointer"
-              }}
-            >
-              {${tag}}
-            </button>
-          `)}
+          <span style="color: var(--text-secondary); font-size: 0.8rem; margin-right: 0.5rem;"
+            >Insert tag:</span
+          >
+          ${tags.map(
+            (tag) => html`
+              <button
+                type="button"
+                onClick=${() => insertTag(tag)}
+                style=${{
+                  padding: "0.2rem 0.5rem",
+                  fontSize: "0.75rem",
+                  backgroundColor: "var(--bg-tertiary)",
+                  border: "1px solid var(--border-color)",
+                  borderRadius: "3px",
+                  color: "var(--text-secondary)",
+                  cursor: "pointer"
+                }}
+              >
+                {${tag}}
+              </button>
+            `
+          )}
         </div>
       `}
     </div>
@@ -222,12 +250,12 @@ export function ConfigPanel() {
   }, [loadAllConfig]);
 
   const handleFilterChange = (key, value) => {
-    setEditedFilters(prev => ({ ...prev, [key]: value }));
+    setEditedFilters((prev) => ({ ...prev, [key]: value }));
     setHasFilterChanges(true);
   };
 
   const handleSubMessageChange = (type, key, value) => {
-    setEditedSubMessages(prev => ({
+    setEditedSubMessages((prev) => ({
       ...prev,
       [type]: { ...prev[type], [key]: value }
     }));
@@ -280,22 +308,31 @@ export function ConfigPanel() {
   }
 
   if (error) {
-    return html`
-      <div class="alert alert-error">
-        Failed to load configuration: ${error}
-      </div>
-    `;
+    return html` <div class="alert alert-error">Failed to load configuration: ${error}</div> `;
   }
 
   const allTags = subMessages?.availableTags?.all || ["user", "tier", "channel"];
-  const resubTags = [...allTags, ...(subMessages?.availableTags?.resub || ["months", "streak_months", "message"])];
-  const giftSingleTags = [...allTags, ...(subMessages?.availableTags?.giftSub?.single || ["recipient"])];
-  const giftMultipleTags = [...allTags, ...(subMessages?.availableTags?.giftSub?.multiple || ["recipient_count"])];
+  const resubTags = [
+    ...allTags,
+    ...(subMessages?.availableTags?.resub || ["months", "streak_months", "message"])
+  ];
+  const giftSingleTags = [
+    ...allTags,
+    ...(subMessages?.availableTags?.giftSub?.single || ["recipient"])
+  ];
+  const giftMultipleTags = [
+    ...allTags,
+    ...(subMessages?.availableTags?.giftSub?.multiple || ["recipient_count"])
+  ];
 
   return html`
     <div>
-      ${saveMessage && html`
-        <div class="alert ${saveMessage.type === "error" ? "alert-error" : "alert-success"}" style="margin-bottom: 1rem;">
+      ${saveMessage &&
+      html`
+        <div
+          class="alert ${saveMessage.type === "error" ? "alert-error" : "alert-success"}"
+          style="margin-bottom: 1rem;"
+        >
           ${saveMessage.text}
         </div>
       `}
@@ -306,10 +343,14 @@ export function ConfigPanel() {
         <${ConfigItem}
           label="Channel Mapping"
           value=${Object.keys(channels?.mapping || {}).length > 0
-            ? Object.entries(channels.mapping).map(([t, d]) => `${t} → ${d}`).join(", ")
+            ? Object.entries(channels.mapping)
+                .map(([t, d]) => `${t} → ${d}`)
+                .join(", ")
             : "No mapping configured"}
         />
-        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.75rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: 4px;">
+        <p
+          style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.75rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: 4px;"
+        >
           Channel configuration requires editing .env and restarting the bot.
         </p>
       <//>
@@ -339,7 +380,9 @@ export function ConfigPanel() {
         <${ConfigItem} label="Blocked Words Count" value=${filters?.blockedWordsCount} />
         <${ConfigItem} label="Blocked Regex Count" value=${filters?.blockedRegexCount} />
 
-        ${isAdmin && hasFilterChanges && html`
+        ${isAdmin &&
+        hasFilterChanges &&
+        html`
           <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
             <button
               onClick=${saveFilters}
@@ -375,72 +418,87 @@ export function ConfigPanel() {
       <//>
 
       <${ConfigSection} title="Subscription Messages" badge=${isAdmin ? "Editable" : "View only"}>
-        <h4 style="color: var(--text-primary); margin: 0 0 0.75rem 0; font-size: 1rem;">New Subscription</h4>
+        <h4 style="color: var(--text-primary); margin: 0 0 0.75rem 0; font-size: 1rem;">
+          New Subscription
+        </h4>
         <${ToggleSwitch}
           label="Enable Thank You Message"
           checked=${editedSubMessages.sub?.enabled !== false}
           onChange=${(v) => handleSubMessageChange("sub", "enabled", v)}
           disabled=${!isAdmin}
         />
-        ${isAdmin ? html`
-          <${TemplateEditor}
-            label="Message Template"
-            value=${editedSubMessages.sub?.message || ""}
-            onChange=${(v) => handleSubMessageChange("sub", "message", v)}
-            tags=${allTags}
-            placeholder="hype Welcome to Kandyland, {user}! kandyKiss"
-          />
-        ` : html`
-          <${ConfigItem} label="Message" value=${editedSubMessages.sub?.message} />
-        `}
+        ${isAdmin
+          ? html`
+              <${TemplateEditor}
+                label="Message Template"
+                value=${editedSubMessages.sub?.message || ""}
+                onChange=${(v) => handleSubMessageChange("sub", "message", v)}
+                tags=${allTags}
+                placeholder="hype Welcome to Kandyland, {user}! kandyKiss"
+              />
+            `
+          : html` <${ConfigItem} label="Message" value=${editedSubMessages.sub?.message} /> `}
 
-        <h4 style="color: var(--text-primary); margin: 1.5rem 0 0.75rem 0; font-size: 1rem;">Resub</h4>
+        <h4 style="color: var(--text-primary); margin: 1.5rem 0 0.75rem 0; font-size: 1rem;">
+          Resub
+        </h4>
         <${ToggleSwitch}
           label="Enable Thank You Message"
           checked=${editedSubMessages.resub?.enabled !== false}
           onChange=${(v) => handleSubMessageChange("resub", "enabled", v)}
           disabled=${!isAdmin}
         />
-        ${isAdmin ? html`
-          <${TemplateEditor}
-            label="Message Template"
-            value=${editedSubMessages.resub?.message || ""}
-            onChange=${(v) => handleSubMessageChange("resub", "message", v)}
-            tags=${resubTags}
-            placeholder="hype Welcome back, {user}! {months} months! kandyKiss"
-          />
-        ` : html`
-          <${ConfigItem} label="Message" value=${editedSubMessages.resub?.message} />
-        `}
+        ${isAdmin
+          ? html`
+              <${TemplateEditor}
+                label="Message Template"
+                value=${editedSubMessages.resub?.message || ""}
+                onChange=${(v) => handleSubMessageChange("resub", "message", v)}
+                tags=${resubTags}
+                placeholder="hype Welcome back, {user}! {months} months! kandyKiss"
+              />
+            `
+          : html` <${ConfigItem} label="Message" value=${editedSubMessages.resub?.message} /> `}
 
-        <h4 style="color: var(--text-primary); margin: 1.5rem 0 0.75rem 0; font-size: 1rem;">Gift Subscription</h4>
+        <h4 style="color: var(--text-primary); margin: 1.5rem 0 0.75rem 0; font-size: 1rem;">
+          Gift Subscription
+        </h4>
         <${ToggleSwitch}
           label="Enable Thank You Message"
           checked=${editedSubMessages.giftSub?.enabled !== false}
           onChange=${(v) => handleSubMessageChange("giftSub", "enabled", v)}
           disabled=${!isAdmin}
         />
-        ${isAdmin ? html`
-          <${TemplateEditor}
-            label="Single Gift Template"
-            value=${editedSubMessages.giftSub?.messageSingle || ""}
-            onChange=${(v) => handleSubMessageChange("giftSub", "messageSingle", v)}
-            tags=${giftSingleTags}
-            placeholder="Thank you for gifting to {recipient}, {user}! kandyHype"
-          />
-          <${TemplateEditor}
-            label="Multiple Gifts Template"
-            value=${editedSubMessages.giftSub?.messageMultiple || ""}
-            onChange=${(v) => handleSubMessageChange("giftSub", "messageMultiple", v)}
-            tags=${giftMultipleTags}
-            placeholder="Thank you for gifting to {recipient_count} users, {user}! kandyHype"
-          />
-        ` : html`
-          <${ConfigItem} label="Single Gift" value=${editedSubMessages.giftSub?.messageSingle} />
-          <${ConfigItem} label="Multiple Gifts" value=${editedSubMessages.giftSub?.messageMultiple} />
-        `}
-
-        ${isAdmin && hasSubMessageChanges && html`
+        ${isAdmin
+          ? html`
+              <${TemplateEditor}
+                label="Single Gift Template"
+                value=${editedSubMessages.giftSub?.messageSingle || ""}
+                onChange=${(v) => handleSubMessageChange("giftSub", "messageSingle", v)}
+                tags=${giftSingleTags}
+                placeholder="Thank you for gifting to {recipient}, {user}! kandyHype"
+              />
+              <${TemplateEditor}
+                label="Multiple Gifts Template"
+                value=${editedSubMessages.giftSub?.messageMultiple || ""}
+                onChange=${(v) => handleSubMessageChange("giftSub", "messageMultiple", v)}
+                tags=${giftMultipleTags}
+                placeholder="Thank you for gifting to {recipient_count} users, {user}! kandyHype"
+              />
+            `
+          : html`
+              <${ConfigItem}
+                label="Single Gift"
+                value=${editedSubMessages.giftSub?.messageSingle}
+              />
+              <${ConfigItem}
+                label="Multiple Gifts"
+                value=${editedSubMessages.giftSub?.messageMultiple}
+              />
+            `}
+        ${isAdmin &&
+        hasSubMessageChanges &&
+        html`
           <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
             <button
               onClick=${saveSubMessages}
@@ -476,10 +534,21 @@ export function ConfigPanel() {
       <//>
 
       <${ConfigSection} title="Alert Roles" badge="Read-only">
-        <${ConfigItem} label="Reaction Timeout" value=${`${configData?.filters?.reactionTimeoutSeconds}s`} />
-        <${ConfigItem} label="Freeze Alert Role" value=${configData?.alerts?.freezeAlertRoleId || "Not set"} />
-        <${ConfigItem} label="Stream Alert Role" value=${configData?.alerts?.streamAlertRoleId || "Not set"} />
-        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.75rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: 4px;">
+        <${ConfigItem}
+          label="Reaction Timeout"
+          value=${`${configData?.filters?.reactionTimeoutSeconds}s`}
+        />
+        <${ConfigItem}
+          label="Freeze Alert Role"
+          value=${configData?.alerts?.freezeAlertRoleId || "Not set"}
+        />
+        <${ConfigItem}
+          label="Stream Alert Role"
+          value=${configData?.alerts?.streamAlertRoleId || "Not set"}
+        />
+        <p
+          style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.75rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: 4px;"
+        >
           Alert role configuration requires editing .env and restarting the bot.
         </p>
       <//>

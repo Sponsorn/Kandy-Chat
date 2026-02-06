@@ -20,8 +20,8 @@ export const botStatus = signal({
 });
 
 // Stream status (per-channel)
-export const streamStatus = signal({});  // { "kandyland": "online", "kandylandvods": "offline" }
-export const freezeDetectedAt = signal({});  // { "kandyland": null, "kandylandvods": 1234567890 }
+export const streamStatus = signal({}); // { "kandyland": "online", "kandylandvods": "offline" }
+export const freezeDetectedAt = signal({}); // { "kandyland": null, "kandylandvods": 1234567890 }
 
 // Twitch channels list
 export const twitchChannels = signal([]);
@@ -66,7 +66,7 @@ export function setChatMessages(msgs) {
 }
 
 export function markChatMessageDeleted(messageId) {
-  chatMessages.value = chatMessages.value.map(msg =>
+  chatMessages.value = chatMessages.value.map((msg) =>
     msg.id === messageId ? { ...msg, deleted: true } : msg
   );
 }
@@ -87,7 +87,7 @@ const MAX_AUDIT_ENTRIES = 100;
 
 export function addAuditEntry(entry) {
   const current = auditLog.value;
-  const newEntries = [entry, ...current.filter(e => e.id !== entry.id)];
+  const newEntries = [entry, ...current.filter((e) => e.id !== entry.id)];
   auditLog.value = newEntries.slice(0, MAX_AUDIT_ENTRIES);
 }
 

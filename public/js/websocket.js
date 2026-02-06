@@ -30,12 +30,20 @@ export function connect() {
       reconnectAttempts = 0;
 
       // Subscribe to events
-      ws.send(JSON.stringify({
-        type: "subscribe",
-        data: {
-          events: ["message:relay", "mod:action", "stream:status", "config:update", "status:update"]
-        }
-      }));
+      ws.send(
+        JSON.stringify({
+          type: "subscribe",
+          data: {
+            events: [
+              "message:relay",
+              "mod:action",
+              "stream:status",
+              "config:update",
+              "status:update"
+            ]
+          }
+        })
+      );
     };
 
     ws.onmessage = (event) => {

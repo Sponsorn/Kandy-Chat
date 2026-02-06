@@ -119,10 +119,4 @@ function getDefaults() {
   return { ...DEFAULT_CONFIG };
 }
 
-export {
-  loadConfig,
-  saveConfig,
-  updateConfigSection,
-  getDefaults,
-  DEFAULT_CONFIG
-};
+export { loadConfig, saveConfig, updateConfigSection, getDefaults, DEFAULT_CONFIG };

@@ -46,19 +46,21 @@ function HomePage() {
         <p class="page-subtitle">Overview of bot status and activity</p>
       </header>
       <${StatusGrid} />
-      ${channels.length > 0 ? html`
-        <div class="channel-columns">
-          ${channels.map(channel => html`
-            <${ChannelColumn}
-              key=${channel}
-              channel=${channel}
-              displayName=${formatChannelName(channel)}
-            />
-          `)}
-        </div>
-      ` : html`
-        <${ChatFeed} />
-      `}
+      ${channels.length > 0
+        ? html`
+            <div class="channel-columns">
+              ${channels.map(
+                (channel) => html`
+                  <${ChannelColumn}
+                    key=${channel}
+                    channel=${channel}
+                    displayName=${formatChannelName(channel)}
+                  />
+                `
+              )}
+            </div>
+          `
+        : html` <${ChatFeed} /> `}
     </div>
   `;
 }
@@ -78,9 +80,7 @@ function ChatPage() {
 function ModLogPage() {
   if (!canModerate.value) {
     return html`
-      <div class="alert alert-error">
-        You don't have permission to view this page.
-      </div>
+      <div class="alert alert-error">You don't have permission to view this page.</div>
     `;
   }
 
@@ -98,9 +98,7 @@ function ModLogPage() {
 function BlacklistPage() {
   if (!canModerate.value) {
     return html`
-      <div class="alert alert-error">
-        You don't have permission to view this page.
-      </div>
+      <div class="alert alert-error">You don't have permission to view this page.</div>
     `;
   }
 
@@ -118,9 +116,7 @@ function BlacklistPage() {
 function SettingsPage() {
   if (!canModerate.value) {
     return html`
-      <div class="alert alert-error">
-        You don't have permission to view this page.
-      </div>
+      <div class="alert alert-error">You don't have permission to view this page.</div>
     `;
   }
 
@@ -141,9 +137,7 @@ function SettingsPage() {
 function ControlPage() {
   if (!canAdmin.value) {
     return html`
-      <div class="alert alert-error">
-        You don't have permission to view this page.
-      </div>
+      <div class="alert alert-error">You don't have permission to view this page.</div>
     `;
   }
 
@@ -161,9 +155,7 @@ function ControlPage() {
 function AuditPage() {
   if (!canAdmin.value) {
     return html`
-      <div class="alert alert-error">
-        You don't have permission to view this page.
-      </div>
+      <div class="alert alert-error">You don't have permission to view this page.</div>
     `;
   }
 
@@ -218,8 +210,9 @@ function App() {
 
   useEffect(() => {
     // Check authentication on mount
-    auth.getMe()
-      .then(data => {
+    auth
+      .getMe()
+      .then((data) => {
         if (data.authenticated) {
           // Set user with permission in a single signal update
           user.value = { ...data.user, permission: data.permission };
@@ -232,7 +225,7 @@ function App() {
         }
         setAuthChecked(true);
       })
-      .catch(err => {
+      .catch((err) => {
         console.error("Auth check failed:", err);
         user.value = null;
         setAuthenticated(false);

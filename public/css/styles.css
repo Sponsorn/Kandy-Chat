@@ -26,8 +26,9 @@
   padding: 0;
 }
 
-html, body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+html,
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
   font-size: 14px;
   line-height: 1.5;
   color: var(--text-primary);
@@ -59,7 +60,9 @@ html, body {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Layout */
@@ -237,10 +240,18 @@ html, body {
   font-weight: 600;
 }
 
-.status-value.online { color: var(--success); }
-.status-value.offline { color: var(--text-muted); }
-.status-value.frozen { color: var(--warning); }
-.status-value.error { color: var(--error); }
+.status-value.online {
+  color: var(--success);
+}
+.status-value.offline {
+  color: var(--text-muted);
+}
+.status-value.frozen {
+  color: var(--warning);
+}
+.status-value.error {
+  color: var(--error);
+}
 
 /* Chat feed */
 .chat-feed {
@@ -457,10 +468,22 @@ html, body {
   text-transform: uppercase;
 }
 
-.mod-action.delete { background: var(--error); color: white; }
-.mod-action.timeout { background: var(--warning); color: black; }
-.mod-action.ban { background: #d32f2f; color: white; }
-.mod-action.warn { background: #ff9800; color: black; }
+.mod-action.delete {
+  background: var(--error);
+  color: white;
+}
+.mod-action.timeout {
+  background: var(--warning);
+  color: black;
+}
+.mod-action.ban {
+  background: #d32f2f;
+  color: white;
+}
+.mod-action.warn {
+  background: #ff9800;
+  color: black;
+}
 
 /* Login page */
 .login-page {
@@ -498,7 +521,7 @@ html, body {
 }
 
 .btn-discord {
-  background: #5865F2;
+  background: #5865f2;
   color: white;
 }
 
@@ -604,8 +627,13 @@ html, body {
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 /* Empty states */
@@ -702,8 +730,14 @@ html, body {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(-10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* User lookup modal */

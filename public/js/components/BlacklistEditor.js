@@ -20,12 +20,7 @@ function BlacklistItem({ word, type, onRemove }) {
       <span class="blacklist-word">${word}</span>
       <div style="display: flex; align-items: center; gap: 0.5rem;">
         <span class="blacklist-type">${type}</span>
-        <button
-          class="btn-icon"
-          onClick=${handleRemove}
-          disabled=${removing}
-          title="Remove"
-        >
+        <button class="btn-icon" onClick=${handleRemove} disabled=${removing} title="Remove">
           ${removing ? "..." : "✕"}
         </button>
       </div>
@@ -99,17 +94,15 @@ export function BlacklistEditor() {
 
   // Filter and sort entries
   const filteredWords = words
-    .filter(w => w.toLowerCase().includes(searchTerm.toLowerCase()))
-    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    .filter((w) => w.toLowerCase().includes(searchTerm.toLowerCase()))
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
 
   const filteredRegexes = regexes
-    .filter(r => r.toLowerCase().includes(searchTerm.toLowerCase()))
-    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    .filter((r) => r.toLowerCase().includes(searchTerm.toLowerCase()))
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
 
   const filteredTotal = filteredWords.length + filteredRegexes.length;
-  const countDisplay = searchTerm
-    ? `${filteredTotal} of ${total} entries`
-    : `${total} entries`;
+  const countDisplay = searchTerm ? `${filteredTotal} of ${total} entries` : `${total} entries`;
 
   return html`
     <div class="card">
@@ -118,16 +111,10 @@ export function BlacklistEditor() {
         <span class="text-muted">${countDisplay}</span>
       </div>
       <div class="card-body">
-        ${error && html`
-          <div class="alert alert-error" style="margin-bottom: 1rem;">
-            ${error}
-          </div>
-        `}
-        ${success && html`
-          <div class="alert alert-success" style="margin-bottom: 1rem;">
-            ${success}
-          </div>
-        `}
+        ${error &&
+        html` <div class="alert alert-error" style="margin-bottom: 1rem;">${error}</div> `}
+        ${success &&
+        html` <div class="alert alert-success" style="margin-bottom: 1rem;">${success}</div> `}
 
         <form onSubmit=${handleAdd} style="margin-bottom: 1rem;">
           <div style="display: flex; gap: 0.5rem;">
@@ -148,7 +135,8 @@ export function BlacklistEditor() {
           </p>
         </form>
 
-        ${total > 0 && html`
+        ${total > 0 &&
+        html`
           <div style="margin-bottom: 1rem;">
             <input
               type="text"
@@ -159,48 +147,63 @@ export function BlacklistEditor() {
             />
           </div>
         `}
-
-        ${total === 0 ? html`
-          <div class="empty-state">
-            <div class="empty-state-icon">🚫</div>
-            <p>Blacklist is empty</p>
-          </div>
-        ` : filteredTotal === 0 ? html`
-          <div class="empty-state">
-            <div class="empty-state-icon">🔍</div>
-            <p>No entries match "${searchTerm}"</p>
-          </div>
-        ` : html`
-          <div class="blacklist-list">
-            ${filteredWords.length > 0 && html`
-              <div style="padding: 0.5rem 0.75rem; background: var(--bg-tertiary); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">
-                Words (${filteredWords.length})
+        ${total === 0
+          ? html`
+              <div class="empty-state">
+                <div class="empty-state-icon">🚫</div>
+                <p>Blacklist is empty</p>
               </div>
-              ${filteredWords.map(word => html`
-                <${BlacklistItem}
-                  key=${word}
-                  word=${word}
-                  type="word"
-                  onRemove=${handleRemove}
-                />
-              `)}
-            `}
-
-            ${filteredRegexes.length > 0 && html`
-              <div style="padding: 0.5rem 0.75rem; background: var(--bg-tertiary); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; margin-top: ${filteredWords.length > 0 ? "1rem" : "0"};">
-                Regex Patterns (${filteredRegexes.length})
-              </div>
-              ${filteredRegexes.map(regex => html`
-                <${BlacklistItem}
-                  key=${regex}
-                  word=${regex}
-                  type="regex"
-                  onRemove=${handleRemove}
-                />
-              `)}
-            `}
-          </div>
-        `}
+            `
+          : filteredTotal === 0
+            ? html`
+                <div class="empty-state">
+                  <div class="empty-state-icon">🔍</div>
+                  <p>No entries match "${searchTerm}"</p>
+                </div>
+              `
+            : html`
+                <div class="blacklist-list">
+                  ${filteredWords.length > 0 &&
+                  html`
+                    <div
+                      style="padding: 0.5rem 0.75rem; background: var(--bg-tertiary); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;"
+                    >
+                      Words (${filteredWords.length})
+                    </div>
+                    ${filteredWords.map(
+                      (word) => html`
+                        <${BlacklistItem}
+                          key=${word}
+                          word=${word}
+                          type="word"
+                          onRemove=${handleRemove}
+                        />
+                      `
+                    )}
+                  `}
+                  ${filteredRegexes.length > 0 &&
+                  html`
+                    <div
+                      style="padding: 0.5rem 0.75rem; background: var(--bg-tertiary); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; margin-top: ${filteredWords.length >
+                      0
+                        ? "1rem"
+                        : "0"};"
+                    >
+                      Regex Patterns (${filteredRegexes.length})
+                    </div>
+                    ${filteredRegexes.map(
+                      (regex) => html`
+                        <${BlacklistItem}
+                          key=${regex}
+                          word=${regex}
+                          type="regex"
+                          onRemove=${handleRemove}
+                        />
+                      `
+                    )}
+                  `}
+                </div>
+              `}
       </div>
     </div>
   `;

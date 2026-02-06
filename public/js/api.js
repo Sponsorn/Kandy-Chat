@@ -163,7 +163,10 @@ export const audit = {
 // Chat API
 export const chat = {
   async getHistory(channel, limit = 500) {
-    return request("GET", `/api/chat/history?channel=${encodeURIComponent(channel)}&limit=${limit}`);
+    return request(
+      "GET",
+      `/api/chat/history?channel=${encodeURIComponent(channel)}&limit=${limit}`
+    );
   },
 
   async getRecent(channel = null, limit = 200) {

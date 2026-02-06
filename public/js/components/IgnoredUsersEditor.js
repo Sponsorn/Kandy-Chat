@@ -17,12 +17,7 @@ function IgnoredUserItem({ username, onRemove }) {
   return html`
     <div class="blacklist-item">
       <span class="blacklist-word">${username}</span>
-      <button
-        class="btn-icon"
-        onClick=${handleRemove}
-        disabled=${removing}
-        title="Remove"
-      >
+      <button class="btn-icon" onClick=${handleRemove} disabled=${removing} title="Remove">
         ${removing ? "..." : "\u2715"}
       </button>
     </div>
@@ -132,10 +127,14 @@ export function IgnoredUsersEditor() {
         <span class="card-title">Chat Feed Settings</span>
       </div>
       <div class="card-body">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
+        <div
+          style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);"
+        >
           <div>
             <div style="font-weight: 500;">Debug Logging</div>
-            <div style="font-size: 0.75rem; color: var(--text-muted);">Log captured messages to console</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">
+              Log captured messages to console
+            </div>
           </div>
           <button
             class="btn ${debugEnabled ? "btn-primary" : "btn-secondary"}"
@@ -146,17 +145,14 @@ export function IgnoredUsersEditor() {
           </button>
         </div>
 
-        <div style="font-weight: 500; margin-bottom: 0.5rem;">Ignored Users <span class="text-muted" style="font-weight: normal;">(${users.length})</span></div>
-        ${error && html`
-          <div class="alert alert-error" style="margin-bottom: 1rem;">
-            ${error}
-          </div>
-        `}
-        ${success && html`
-          <div class="alert alert-success" style="margin-bottom: 1rem;">
-            ${success}
-          </div>
-        `}
+        <div style="font-weight: 500; margin-bottom: 0.5rem;">
+          Ignored Users
+          <span class="text-muted" style="font-weight: normal;">(${users.length})</span>
+        </div>
+        ${error &&
+        html` <div class="alert alert-error" style="margin-bottom: 1rem;">${error}</div> `}
+        ${success &&
+        html` <div class="alert alert-success" style="margin-bottom: 1rem;">${success}</div> `}
 
         <form onSubmit=${handleAdd} style="margin-bottom: 1rem;">
           <div style="display: flex; gap: 0.5rem;">
@@ -173,31 +169,37 @@ export function IgnoredUsersEditor() {
             </button>
           </div>
           <p style="margin-top: 0.5rem; color: var(--text-muted); font-size: 0.75rem;">
-            Messages from ignored users will not appear in the chat feed or be stored.
-            Common bots: nightbot, streamelements, moobot, streamlabs
+            Messages from ignored users will not appear in the chat feed or be stored. Common bots:
+            nightbot, streamelements, moobot, streamlabs
           </p>
         </form>
 
-        ${loading ? html`
-          <div class="empty-state">
-            <p>Loading...</p>
-          </div>
-        ` : sortedUsers.length === 0 ? html`
-          <div class="empty-state">
-            <div class="empty-state-icon">👁️</div>
-            <p>No users ignored</p>
-          </div>
-        ` : html`
-          <div class="blacklist-list">
-            ${sortedUsers.map(username => html`
-              <${IgnoredUserItem}
-                key=${username}
-                username=${username}
-                onRemove=${handleRemove}
-              />
-            `)}
-          </div>
-        `}
+        ${loading
+          ? html`
+              <div class="empty-state">
+                <p>Loading...</p>
+              </div>
+            `
+          : sortedUsers.length === 0
+            ? html`
+                <div class="empty-state">
+                  <div class="empty-state-icon">👁️</div>
+                  <p>No users ignored</p>
+                </div>
+              `
+            : html`
+                <div class="blacklist-list">
+                  ${sortedUsers.map(
+                    (username) => html`
+                      <${IgnoredUserItem}
+                        key=${username}
+                        username=${username}
+                        onRemove=${handleRemove}
+                      />
+                    `
+                  )}
+                </div>
+              `}
       </div>
     </div>
   `;

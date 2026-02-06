@@ -45,9 +45,14 @@ export async function handleRestart(interaction) {
   const actor = interaction.user.username;
 
   // Log the restart action
-  botState.recordAuditEvent("restart", actor, {
-    reason: "Manual restart via Discord command"
-  }, "discord");
+  botState.recordAuditEvent(
+    "restart",
+    actor,
+    {
+      reason: "Manual restart via Discord command"
+    },
+    "discord"
+  );
 
   // Remove stop flag if it exists so bot can start
   try {
@@ -76,9 +81,14 @@ export async function handleStop(interaction) {
   const actor = interaction.user.username;
 
   // Log the stop action
-  botState.recordAuditEvent("stop", actor, {
-    reason: "Manual stop via Discord command"
-  }, "discord");
+  botState.recordAuditEvent(
+    "stop",
+    actor,
+    {
+      reason: "Manual stop via Discord command"
+    },
+    "discord"
+  );
 
   // Write stop flag to prevent restart
   try {

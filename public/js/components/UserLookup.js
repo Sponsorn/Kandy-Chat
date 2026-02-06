@@ -5,7 +5,11 @@ import { chatMessages, canModerate } from "../state.js";
 
 function formatTime(timestamp) {
   const date = new Date(timestamp);
-  return date.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return date.toLocaleTimeString("sv-SE", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
 }
 
 export function UserLookup({ username, channel, onClose }) {
@@ -16,43 +20,48 @@ export function UserLookup({ username, channel, onClose }) {
   useEffect(() => {
     // Load messages filtered by username from local state first
     const localMsgs = chatMessages.value.filter(
-      m => (m.username?.toLowerCase() === username.toLowerCase() ||
-            m.displayName?.toLowerCase() === username.toLowerCase()) &&
-           (!channel || (m.channel || m.twitchChannel)?.toLowerCase() === channel.toLowerCase())
+      (m) =>
+        (m.username?.toLowerCase() === username.toLowerCase() ||
+          m.displayName?.toLowerCase() === username.toLowerCase()) &&
+        (!channel || (m.channel || m.twitchChannel)?.toLowerCase() === channel.toLowerCase())
     );
 
     // Try to get more from chat history API
-    chat.getHistory(channel, 500).then(result => {
-      const historyMsgs = (result.messages || []).filter(
-        m => m.username?.toLowerCase() === username.toLowerCase() ||
-             m.displayName?.toLowerCase() === username.toLowerCase()
-      );
+    chat
+      .getHistory(channel, 500)
+      .then((result) => {
+        const historyMsgs = (result.messages || []).filter(
+          (m) =>
+            m.username?.toLowerCase() === username.toLowerCase() ||
+            m.displayName?.toLowerCase() === username.toLowerCase()
+        );
 
-      // Merge and deduplicate
-      const seenIds = new Set();
-      const allMsgs = [];
-      for (const msg of [...localMsgs, ...historyMsgs]) {
-        if (!seenIds.has(msg.id)) {
-          seenIds.add(msg.id);
-          allMsgs.push(msg);
+        // Merge and deduplicate
+        const seenIds = new Set();
+        const allMsgs = [];
+        for (const msg of [...localMsgs, ...historyMsgs]) {
+          if (!seenIds.has(msg.id)) {
+            seenIds.add(msg.id);
+            allMsgs.push(msg);
+          }
         }
-      }
 
-      // Sort by timestamp (newest first)
-      allMsgs.sort((a, b) => b.timestamp - a.timestamp);
-      setMessages(allMsgs);
+        // Sort by timestamp (newest first)
+        allMsgs.sort((a, b) => b.timestamp - a.timestamp);
+        setMessages(allMsgs);
 
-      // Calculate stats
-      const deleted = allMsgs.filter(m => m.deleted).length;
-      setStats({ total: allMsgs.length, deleted });
-      setLoading(false);
-    }).catch(() => {
-      // Just use local messages on error
-      setMessages(localMsgs.sort((a, b) => b.timestamp - a.timestamp));
-      const deleted = localMsgs.filter(m => m.deleted).length;
-      setStats({ total: localMsgs.length, deleted });
-      setLoading(false);
-    });
+        // Calculate stats
+        const deleted = allMsgs.filter((m) => m.deleted).length;
+        setStats({ total: allMsgs.length, deleted });
+        setLoading(false);
+      })
+      .catch(() => {
+        // Just use local messages on error
+        setMessages(localMsgs.sort((a, b) => b.timestamp - a.timestamp));
+        const deleted = localMsgs.filter((m) => m.deleted).length;
+        setStats({ total: localMsgs.length, deleted });
+        setLoading(false);
+      });
   }, [username, channel]);
 
   const handleTimeout = async () => {
@@ -106,19 +115,21 @@ export function UserLookup({ username, channel, onClose }) {
               ? html`<div class="empty-state-small"><p>Loading...</p></div>`
               : messages.length === 0
                 ? html`<div class="empty-state-small"><p>No messages found</p></div>`
-                : messages.slice(0, 50).map(msg => html`
-                  <div class="chat-message ${msg.deleted ? 'deleted' : ''}" key=${msg.id}>
-                    <span class="chat-timestamp">${formatTime(msg.timestamp)}</span>
-                    <div class="chat-content">
-                      <span>${msg.deleted ? html`<s>${msg.message}</s>` : msg.message}</span>
-                    </div>
-                  </div>
-                `)
-            }
+                : messages.slice(0, 50).map(
+                    (msg) => html`
+                      <div class="chat-message ${msg.deleted ? "deleted" : ""}" key=${msg.id}>
+                        <span class="chat-timestamp">${formatTime(msg.timestamp)}</span>
+                        <div class="chat-content">
+                          <span>${msg.deleted ? html`<s>${msg.message}</s>` : msg.message}</span>
+                        </div>
+                      </div>
+                    `
+                  )}
           </div>
         </div>
 
-        ${canModerate.value && html`
+        ${canModerate.value &&
+        html`
           <div class="user-lookup-footer">
             <button class="btn btn-secondary" onClick=${handleTimeout}>Timeout</button>
             <button class="btn btn-danger" onClick=${handleBan}>Ban</button>

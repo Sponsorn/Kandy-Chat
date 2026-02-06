@@ -15,9 +15,9 @@ const SESSION_MAX_AGE = 24 * 60 * 60 * 1000;
 
 // Permission levels
 export const Permissions = {
-  VIEWER: 0,      // Read-only access
-  MODERATOR: 1,   // Mod actions, view logs
-  ADMIN: 2        // Full config, restart/stop
+  VIEWER: 0, // Read-only access
+  MODERATOR: 1, // Mod actions, view logs
+  ADMIN: 2 // Full config, restart/stop
 };
 
 /**
@@ -100,8 +100,8 @@ export function hasPermission(sessionId, minLevel) {
 /**
  * Determine permission level from Discord roles
  * @param {Object} userData - User data with roles array
- * @param {string} adminRoleIds - Comma-separated admin role IDs
- * @param {string} modRoleIds - Comma-separated mod role IDs
+ * @param {string[]} adminRoleIds - Parsed array of admin role IDs
+ * @param {string[]} modRoleIds - Parsed array of mod role IDs
  */
 export function determineDiscordPermission(userData, adminRoleIds, modRoleIds) {
   if (!userData?.roles?.length) return Permissions.VIEWER;
@@ -109,19 +109,13 @@ export function determineDiscordPermission(userData, adminRoleIds, modRoleIds) {
   const userRoles = new Set(userData.roles);
 
   // Check admin roles
-  if (adminRoleIds) {
-    const adminIds = adminRoleIds.split(",").map(id => id.trim()).filter(Boolean);
-    if (adminIds.some(id => userRoles.has(id))) {
-      return Permissions.ADMIN;
-    }
+  if (adminRoleIds?.length && adminRoleIds.some((id) => userRoles.has(id))) {
+    return Permissions.ADMIN;
   }
 
   // Check mod roles
-  if (modRoleIds) {
-    const modIds = modRoleIds.split(",").map(id => id.trim()).filter(Boolean);
-    if (modIds.some(id => userRoles.has(id))) {
-      return Permissions.MODERATOR;
-    }
+  if (modRoleIds?.length && modRoleIds.some((id) => userRoles.has(id))) {
+    return Permissions.MODERATOR;
   }
 
   return Permissions.VIEWER;
@@ -137,7 +131,7 @@ export function determineTwitchPermission(userData, modChannels, configChannels)
   if (!configChannels?.length) return Permissions.VIEWER;
 
   const username = userData?.username?.toLowerCase();
-  const configSet = new Set(configChannels.map(c => c.toLowerCase()));
+  const configSet = new Set(configChannels.map((c) => c.toLowerCase()));
 
   // Broadcaster (channel owner) gets ADMIN
   if (username && configSet.has(username)) {
@@ -146,8 +140,8 @@ export function determineTwitchPermission(userData, modChannels, configChannels)
 
   // Moderator in configured channel gets MODERATOR
   if (modChannels?.length) {
-    const modSet = new Set(modChannels.map(c => c.toLowerCase()));
-    const isModInConfigChannel = configChannels.some(c => modSet.has(c.toLowerCase()));
+    const modSet = new Set(modChannels.map((c) => c.toLowerCase()));
+    const isModInConfigChannel = configChannels.some((c) => modSet.has(c.toLowerCase()));
     if (isModInConfigChannel) {
       return Permissions.MODERATOR;
     }
@@ -260,9 +254,10 @@ export function getSessionStats() {
   return {
     totalSessions: sessions.size,
     byPermission: {
-      viewer: [...sessions.values()].filter(s => s.permission === Permissions.VIEWER).length,
-      moderator: [...sessions.values()].filter(s => s.permission === Permissions.MODERATOR).length,
-      admin: [...sessions.values()].filter(s => s.permission === Permissions.ADMIN).length
+      viewer: [...sessions.values()].filter((s) => s.permission === Permissions.VIEWER).length,
+      moderator: [...sessions.values()].filter((s) => s.permission === Permissions.MODERATOR)
+        .length,
+      admin: [...sessions.values()].filter((s) => s.permission === Permissions.ADMIN).length
     }
   };
 }

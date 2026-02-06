@@ -15,7 +15,7 @@ export function checkRateLimit(userId, limit = 5, windowMs = 60000) {
   const userRequests = rateLimits.get(userId) || [];
 
   // Filter to only recent requests
-  const recentRequests = userRequests.filter(timestamp => now - timestamp < windowMs);
+  const recentRequests = userRequests.filter((timestamp) => now - timestamp < windowMs);
 
   if (recentRequests.length >= limit) {
     return false; // Rate limit exceeded
@@ -36,7 +36,7 @@ export function cleanupRateLimits(windowMs = 60000) {
   let cleaned = 0;
 
   for (const [userId, timestamps] of rateLimits.entries()) {
-    const recent = timestamps.filter(t => now - t < windowMs);
+    const recent = timestamps.filter((t) => now - t < windowMs);
     if (recent.length === 0) {
       rateLimits.delete(userId);
       cleaned++;

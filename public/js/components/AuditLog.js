@@ -42,34 +42,23 @@ function AuditEntry({ entry }) {
     color: "var(--text-muted)"
   };
 
-  const sourceLabel = {
-    dashboard: "Dashboard",
-    discord: "Discord",
-    system: "System"
-  }[entry.source] || entry.source;
+  const sourceLabel =
+    {
+      dashboard: "Dashboard",
+      discord: "Discord",
+      system: "System"
+    }[entry.source] || entry.source;
 
   return html`
     <div class="audit-entry">
-      <div class="audit-icon" style="color: ${actionInfo.color}">
-        ${actionInfo.icon}
-      </div>
+      <div class="audit-icon" style="color: ${actionInfo.color}">${actionInfo.icon}</div>
       <div class="audit-content">
         <div class="audit-header">
-          <span class="audit-action" style="color: ${actionInfo.color}">
-            ${actionInfo.label}
-          </span>
-          <span class="audit-meta">
-            by <strong>${entry.actor}</strong> via ${sourceLabel}
-          </span>
+          <span class="audit-action" style="color: ${actionInfo.color}"> ${actionInfo.label} </span>
+          <span class="audit-meta"> by <strong>${entry.actor}</strong> via ${sourceLabel} </span>
         </div>
-        ${entry.details?.reason && html`
-          <div class="audit-details">
-            ${entry.details.reason}
-          </div>
-        `}
-        <div class="audit-time">
-          ${formatTimestamp(entry.timestamp)}
-        </div>
+        ${entry.details?.reason && html` <div class="audit-details">${entry.details.reason}</div> `}
+        <div class="audit-time">${formatTimestamp(entry.timestamp)}</div>
       </div>
     </div>
   `;
@@ -119,7 +108,7 @@ export function AuditLog() {
   // Merge WebSocket entries with loaded entries
   const mergedEntries = [...auditLog.value];
   for (const entry of entries) {
-    if (!mergedEntries.find(e => e.id === entry.id)) {
+    if (!mergedEntries.find((e) => e.id === entry.id)) {
       mergedEntries.push(entry);
     }
   }
@@ -132,29 +121,29 @@ export function AuditLog() {
         <span class="text-muted">${mergedEntries.length} entries</span>
       </div>
       <div class="card-body">
-        ${error && html`
-          <div class="alert alert-error" style="margin-bottom: 1rem;">
-            ${error}
-          </div>
-        `}
-
-        ${loading ? html`
-          <div class="loading-state">
-            <div class="spinner"></div>
-            <p>Loading audit log...</p>
-          </div>
-        ` : mergedEntries.length === 0 ? html`
-          <div class="empty-state">
-            <div class="empty-state-icon">📋</div>
-            <p>No audit log entries yet</p>
-          </div>
-        ` : html`
-          <div class="audit-list">
-            ${mergedEntries.map(entry => html`
-              <${AuditEntry} key=${entry.id} entry=${entry} />
-            `)}
-          </div>
-        `}
+        ${error &&
+        html` <div class="alert alert-error" style="margin-bottom: 1rem;">${error}</div> `}
+        ${loading
+          ? html`
+              <div class="loading-state">
+                <div class="spinner"></div>
+                <p>Loading audit log...</p>
+              </div>
+            `
+          : mergedEntries.length === 0
+            ? html`
+                <div class="empty-state">
+                  <div class="empty-state-icon">📋</div>
+                  <p>No audit log entries yet</p>
+                </div>
+              `
+            : html`
+                <div class="audit-list">
+                  ${mergedEntries.map(
+                    (entry) => html` <${AuditEntry} key=${entry.id} entry=${entry} /> `
+                  )}
+                </div>
+              `}
       </div>
     </div>
 
@@ -231,7 +220,9 @@ export function AuditLog() {
       }
 
       @keyframes spin {
-        to { transform: rotate(360deg); }
+        to {
+          transform: rotate(360deg);
+        }
       }
     </style>
   `;

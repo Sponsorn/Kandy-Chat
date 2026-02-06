@@ -5,13 +5,16 @@ This guide will help you set up the Kandy Chat bot on a Raspberry Pi 5 using Doc
 ## Prerequisites on Raspberry Pi 5
 
 ### 1. Install Docker
+
 Docker should already be installed on your Pi. Verify with:
+
 ```bash
 docker --version
 docker compose version
 ```
 
 ### 2. Install Git
+
 ```bash
 sudo apt install git -y
 ```
@@ -19,6 +22,7 @@ sudo apt install git -y
 ## Initial Setup on Raspberry Pi
 
 ### 1. Clone Repository
+
 ```bash
 cd /mnt/nvme
 git clone https://github.com/Sponsorn/Kandy-Chat.git kandy-chat
@@ -26,6 +30,7 @@ cd kandy-chat
 ```
 
 ### 2. Set Up Environment Variables
+
 ```bash
 # Copy the example env file
 cp .env.example .env
@@ -35,6 +40,7 @@ nano .env
 ```
 
 Fill in all required Discord and Twitch credentials:
+
 - `DISCORD_TOKEN`: your bot token
 - `DISCORD_CHANNEL_ID`: target channel id
 - `DISCORD_CLIENT_ID`: application client id
@@ -46,12 +52,15 @@ Fill in all required Discord and Twitch credentials:
 - `TWITCH_CHANNEL`: channel to read
 
 ### 3. Create Data Directory
+
 ```bash
 mkdir -p data
 ```
 
 ### 4. Deploy Slash Commands
+
 Before starting the bot for the first time, deploy the slash commands:
+
 ```bash
 # Install dependencies temporarily for deployment
 npm install
@@ -64,6 +73,7 @@ rm -rf node_modules
 ## Deploying the Bot
 
 ### Initial Deployment
+
 ```bash
 cd /mnt/nvme/kandy-chat
 
@@ -75,6 +85,7 @@ docker compose logs -f
 ```
 
 ### Updating the Bot
+
 When you push changes to GitHub, update your Pi with:
 
 ```bash
@@ -93,6 +104,7 @@ docker compose logs -f
 ## Useful Commands
 
 ### Container Management
+
 ```bash
 # View logs (follow mode)
 docker compose logs -f
@@ -117,6 +129,7 @@ docker compose exec kandy-chat sh
 ```
 
 ### Resource Monitoring
+
 ```bash
 # View resource usage
 docker stats kandy-chat-bot
@@ -129,6 +142,7 @@ df -h
 ```
 
 ### Clean Up
+
 ```bash
 # Remove old images
 docker image prune -f
@@ -151,6 +165,7 @@ If you're using EventSub, you'll need to expose port 8080 (or your configured po
 ## Troubleshooting
 
 ### Container won't start
+
 ```bash
 # View detailed logs
 docker compose logs
@@ -165,17 +180,20 @@ docker compose up -d
 ```
 
 ### Permission issues
+
 ```bash
 # Ensure you own the directory
 sudo chown -R sponsorn:sponsorn /mnt/nvme/kandy-chat
 ```
 
 ### Check Docker is running
+
 ```bash
 sudo systemctl status docker
 ```
 
 ### Out of disk space
+
 ```bash
 # Check disk usage
 df -h
@@ -187,6 +205,7 @@ docker system prune -a
 ## Security Recommendations
 
 1. **Firewall**: Use UFW to restrict access
+
    ```bash
    sudo apt install ufw
    sudo ufw allow ssh
@@ -195,6 +214,7 @@ docker system prune -a
    ```
 
 2. **Keep system updated**:
+
    ```bash
    sudo apt update && sudo apt upgrade -y
    ```
@@ -211,6 +231,7 @@ docker system prune -a
 The `restart: unless-stopped` policy in [docker-compose.yml](docker-compose.yml) ensures the bot automatically starts when your Pi boots.
 
 To manually control this:
+
 ```bash
 # Disable auto-restart
 docker compose down
@@ -222,6 +243,7 @@ docker compose up -d
 ## Monitoring
 
 ### View System Resources
+
 ```bash
 # CPU and memory
 htop
@@ -234,6 +256,7 @@ df -h /mnt/nvme
 ```
 
 ### View Bot Logs
+
 ```bash
 # Live logs
 docker compose logs -f
@@ -277,11 +300,13 @@ docker compose logs --tail=50
 ```
 
 Make it executable:
+
 ```bash
 chmod +x /mnt/nvme/kandy-chat/update.sh
 ```
 
 Then update with:
+
 ```bash
 /mnt/nvme/kandy-chat/update.sh
 ```

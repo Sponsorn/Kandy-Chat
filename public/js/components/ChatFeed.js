@@ -4,7 +4,11 @@ import { mod } from "../api.js";
 
 function formatTime(timestamp) {
   const date = new Date(timestamp);
-  return date.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return date.toLocaleTimeString("sv-SE", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
 }
 
 function ChatMessage({ message, onModAction }) {
@@ -43,7 +47,8 @@ function ChatMessage({ message, onModAction }) {
         <span>: </span>
         <span>${message.content || "(message content not available)"}</span>
       </div>
-      ${canModerate.value && html`
+      ${canModerate.value &&
+      html`
         <div class="chat-actions">
           <button class="btn-icon" title="Delete" onClick=${handleDelete}>🗑️</button>
           <button class="btn-icon" title="Timeout" onClick=${handleTimeout}>⏱️</button>
@@ -56,7 +61,7 @@ function ChatMessage({ message, onModAction }) {
 
 export function ChatFeed({ channel = null }) {
   const messageList = channel
-    ? messages.value.filter(m => m.twitchChannel?.toLowerCase() === channel.toLowerCase())
+    ? messages.value.filter((m) => m.twitchChannel?.toLowerCase() === channel.toLowerCase())
     : messages.value;
 
   if (messageList.length === 0) {
@@ -82,9 +87,7 @@ export function ChatFeed({ channel = null }) {
         <span class="text-muted">${messageList.length} messages</span>
       </div>
       <div class="chat-feed">
-        ${messageList.map(msg => html`
-          <${ChatMessage} key=${msg.id} message=${msg} />
-        `)}
+        ${messageList.map((msg) => html` <${ChatMessage} key=${msg.id} message=${msg} /> `)}
       </div>
     </div>
   `;

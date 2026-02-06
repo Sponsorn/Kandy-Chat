@@ -1,4 +1,12 @@
-import { MessageFlags, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, AttachmentBuilder } from "discord.js";
+import {
+  MessageFlags,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ComponentType,
+  AttachmentBuilder
+} from "discord.js";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { addBlacklistWord, loadBlacklist, removeBlacklistWord } from "../blacklistStore.js";
@@ -6,7 +14,10 @@ import { addBlacklistWord, loadBlacklist, removeBlacklistWord } from "../blackli
 /**
  * Handle /klb addblacklist command
  */
-export async function handleAddBlacklist(interaction, { updateBlacklistFromEntries, relaySystemMessage }) {
+export async function handleAddBlacklist(
+  interaction,
+  { updateBlacklistFromEntries, relaySystemMessage }
+) {
   const word = interaction.options.getString("word", true).trim();
   if (!word) {
     await interaction.reply({
@@ -23,9 +34,7 @@ export async function handleAddBlacklist(interaction, { updateBlacklistFromEntri
       content: `Added blacklist word: \`${word}\``,
       flags: MessageFlags.Ephemeral
     });
-    relaySystemMessage(
-      `${interaction.user.username} added ${word} to blacklist`
-    ).catch((error) => {
+    relaySystemMessage(`${interaction.user.username} added ${word} to blacklist`).catch((error) => {
       console.error("Failed to send blacklist update message", error);
     });
   } else {
@@ -39,7 +48,10 @@ export async function handleAddBlacklist(interaction, { updateBlacklistFromEntri
 /**
  * Handle /klb removeblacklist command
  */
-export async function handleRemoveBlacklist(interaction, { updateBlacklistFromEntries, relaySystemMessage }) {
+export async function handleRemoveBlacklist(
+  interaction,
+  { updateBlacklistFromEntries, relaySystemMessage }
+) {
   const word = interaction.options.getString("word", true).trim();
   if (!word) {
     await interaction.reply({
@@ -56,11 +68,11 @@ export async function handleRemoveBlacklist(interaction, { updateBlacklistFromEn
       content: `Removed blacklist word: \`${word}\``,
       flags: MessageFlags.Ephemeral
     });
-    relaySystemMessage(
-      `${interaction.user.username} removed ${word} from blacklist`
-    ).catch((error) => {
-      console.error("Failed to send blacklist update message", error);
-    });
+    relaySystemMessage(`${interaction.user.username} removed ${word} from blacklist`).catch(
+      (error) => {
+        console.error("Failed to send blacklist update message", error);
+      }
+    );
   } else {
     await interaction.reply({
       content: `Word not found: \`${word}\``,
@@ -107,10 +119,7 @@ export async function handleListBlacklist(interaction, { parseRegexEntry }) {
     return pages;
   };
 
-  const allPages = [
-    ...createPages(plain, "Words"),
-    ...createPages(regexes, "Regex")
-  ];
+  const allPages = [...createPages(plain, "Words"), ...createPages(regexes, "Regex")];
 
   if (allPages.length === 0) {
     await interaction.reply({
@@ -127,29 +136,30 @@ export async function handleListBlacklist(interaction, { parseRegexEntry }) {
     const embed = new EmbedBuilder()
       .setTitle(`Blacklist - ${page.type}`)
       .setDescription(`\`\`\`\n${page.content}\n\`\`\``)
-      .setColor(0x5865F2)
-      .setFooter({ text: `Page ${pageIndex + 1} of ${allPages.length} • Total: ${plain.length} words, ${regexes.length} regex` });
+      .setColor(0x5865f2)
+      .setFooter({
+        text: `Page ${pageIndex + 1} of ${allPages.length} • Total: ${plain.length} words, ${regexes.length} regex`
+      });
     return embed;
   };
 
   const generateButtons = (pageIndex) => {
-    const row = new ActionRowBuilder()
-      .addComponents(
-        new ButtonBuilder()
-          .setCustomId("prev")
-          .setLabel("Previous")
-          .setStyle(ButtonStyle.Primary)
-          .setDisabled(pageIndex === 0),
-        new ButtonBuilder()
-          .setCustomId("next")
-          .setLabel("Next")
-          .setStyle(ButtonStyle.Primary)
-          .setDisabled(pageIndex === allPages.length - 1),
-        new ButtonBuilder()
-          .setCustomId("download")
-          .setLabel("Download as .txt")
-          .setStyle(ButtonStyle.Secondary)
-      );
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("prev")
+        .setLabel("Previous")
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(pageIndex === 0),
+      new ButtonBuilder()
+        .setCustomId("next")
+        .setLabel("Next")
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(pageIndex === allPages.length - 1),
+      new ButtonBuilder()
+        .setCustomId("download")
+        .setLabel("Download as .txt")
+        .setStyle(ButtonStyle.Secondary)
+    );
     return row;
   };
 
@@ -195,10 +205,9 @@ export async function handleListBlacklist(interaction, { parseRegexEntry }) {
         fileContent += "=== Regex Patterns ===\n" + regexes.join("\n");
       }
 
-      const attachment = new AttachmentBuilder(
-        Buffer.from(fileContent, "utf-8"),
-        { name: "blacklist.txt" }
-      );
+      const attachment = new AttachmentBuilder(Buffer.from(fileContent, "utf-8"), {
+        name: "blacklist.txt"
+      });
 
       await i.reply({
         content: "Here's your blacklist file:",
@@ -209,16 +218,21 @@ export async function handleListBlacklist(interaction, { parseRegexEntry }) {
   });
 
   collector.on("end", () => {
-    response.edit({
-      components: []
-    }).catch(() => {});
+    response
+      .edit({
+        components: []
+      })
+      .catch(() => {});
   });
 }
 
 /**
  * Handle /klb importblacklist command
  */
-export async function handleImportBlacklist(interaction, { twitchAPIClient, updateBlacklistFromEntries, relaySystemMessage }) {
+export async function handleImportBlacklist(
+  interaction,
+  { twitchAPIClient, updateBlacklistFromEntries, relaySystemMessage }
+) {
   const channel = interaction.options.getString("channel", true).trim();
   if (!channel) {
     await interaction.reply({
@@ -264,7 +278,7 @@ export async function handleImportBlacklist(interaction, { twitchAPIClient, upda
     updateBlacklistFromEntries(updatedWords);
 
     // Count terms with expiry
-    const withExpiry = termObjects.filter(t => t.expires_at !== null).length;
+    const withExpiry = termObjects.filter((t) => t.expires_at !== null).length;
 
     await interaction.editReply({
       content: `Imported ${addedCount} new terms from **${channel}** (${termObjects.length} total found, ${termObjects.length - addedCount} already in blacklist${withExpiry > 0 ? `, ${withExpiry} have expiry dates` : ""})`,

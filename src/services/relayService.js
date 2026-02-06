@@ -33,12 +33,12 @@ export function checkSuspiciousMessage(message) {
   }
 
   const lowerMessage = message.toLowerCase();
-  const matchedWord = filters.blockedWords.find(word =>
-    word && lowerMessage.includes(word.toLowerCase())
+  const matchedWord = filters.blockedWords.find(
+    (word) => word && lowerMessage.includes(word.toLowerCase())
   );
   if (matchedWord) return matchedWord;
 
-  const matchedRegex = filters.blockedRegexes?.find(regex => {
+  const matchedRegex = filters.blockedRegexes?.find((regex) => {
     if (regex.global || regex.sticky) {
       regex.lastIndex = 0;
     }
@@ -55,7 +55,7 @@ export function checkSuspiciousMessage(message) {
 export async function addModerationReactions(message) {
   const { reactionEmojis } = botState.config;
   const emojis = [reactionEmojis.delete, reactionEmojis.timeout, reactionEmojis.ban]
-    .map(emoji => (emoji ?? "").trim())
+    .map((emoji) => (emoji ?? "").trim())
     .filter(Boolean);
 
   console.log(`Adding moderation reactions: ${emojis.join(", ")}`);
@@ -78,10 +78,13 @@ export async function relayToDiscord(username, message, twitchChannel, discordCh
 
   // If no channels cached, try to fetch them
   if (!targetChannels.length && discordChannelId) {
-    const channelIds = discordChannelId.split(",").map(id => id.trim()).filter(Boolean);
+    const channelIds = discordChannelId
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
     targetChannels = await Promise.all(
-      channelIds.map(id =>
-        botState.discordClient?.channels.fetch(id).catch(err => {
+      channelIds.map((id) =>
+        botState.discordClient?.channels.fetch(id).catch((err) => {
           console.warn(`Failed to fetch Discord channel ${id}: ${err.message}`);
           return null;
         })
@@ -97,7 +100,7 @@ export async function relayToDiscord(username, message, twitchChannel, discordCh
     const mappedDiscordId = botState.channelMapping.get(normalizedTwitchCh);
 
     if (mappedDiscordId) {
-      targetChannels = targetChannels.filter(ch => ch.id === mappedDiscordId);
+      targetChannels = targetChannels.filter((ch) => ch.id === mappedDiscordId);
     }
   }
 
@@ -105,16 +108,19 @@ export async function relayToDiscord(username, message, twitchChannel, discordCh
   const suffix = suspiciousMatch ? ` ⚠️ Suspicious message [${suspiciousMatch}]` : "";
 
   // Add channel prefix if multi-channel mode
-  const channelPrefix = botState.twitchChannels.length > 1 && twitchChannel
-    ? `[${twitchChannel.replace(/^#/, "")}] `
-    : "";
+  const channelPrefix =
+    botState.twitchChannels.length > 1 && twitchChannel
+      ? `[${twitchChannel.replace(/^#/, "")}] `
+      : "";
 
   let sent = null;
   for (const channel of targetChannels) {
     if (!channel?.isTextBased()) continue;
-    const result = await channel.send(`${channelPrefix}${formatRelayMessage(username, message)}${suffix}`);
+    const result = await channel.send(
+      `${channelPrefix}${formatRelayMessage(username, message)}${suffix}`
+    );
     if (suspiciousMatch) {
-      addModerationReactions(result).catch(error => {
+      addModerationReactions(result).catch((error) => {
         console.warn("Failed to add moderation reactions", error);
       });
     }
@@ -132,10 +138,13 @@ export async function relaySystemMessage(message, discordChannelId) {
   let channels = botState.discordChannels;
 
   if (!channels.length && discordChannelId) {
-    const channelIds = discordChannelId.split(",").map(id => id.trim()).filter(Boolean);
+    const channelIds = discordChannelId
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
     channels = await Promise.all(
-      channelIds.map(id =>
-        botState.discordClient?.channels.fetch(id).catch(err => {
+      channelIds.map((id) =>
+        botState.discordClient?.channels.fetch(id).catch((err) => {
           console.warn(`Failed to fetch Discord channel ${id}: ${err.message}`);
           return null;
         })
@@ -147,9 +156,7 @@ export async function relaySystemMessage(message, discordChannelId) {
 
   const payload = `[SYSTEM] ${message}`;
   const messages = await Promise.all(
-    channels
-      .filter(channel => channel?.isTextBased())
-      .map(channel => channel.send(payload))
+    channels.filter((channel) => channel?.isTextBased()).map((channel) => channel.send(payload))
   );
   return messages;
 }

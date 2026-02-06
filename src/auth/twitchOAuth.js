@@ -141,7 +141,7 @@ async function getModeratedChannels(accessToken, clientId, userId) {
     }
 
     const data = await response.json();
-    channels.push(...(data.data || []).map(c => c.broadcaster_login));
+    channels.push(...(data.data || []).map((c) => c.broadcaster_login));
     cursor = data.pagination?.cursor || null;
   } while (cursor);
 
@@ -221,7 +221,7 @@ export function createTwitchAuthRoutes(router, config) {
         modChannels,
         accessToken: tokens.access_token,
         refreshToken: tokens.refresh_token,
-        expiresAt: Date.now() + (tokens.expires_in * 1000)
+        expiresAt: Date.now() + tokens.expires_in * 1000
       };
 
       const sessionId = createSession(userData);

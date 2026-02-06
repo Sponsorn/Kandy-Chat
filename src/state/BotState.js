@@ -111,20 +111,24 @@ class BotState extends EventEmitter {
 
     // Parse Twitch channels
     if (env.TWITCH_CHANNEL) {
-      this.twitchChannels = env.TWITCH_CHANNEL.split(",").map(ch => ch.trim().toLowerCase()).filter(Boolean);
+      this.twitchChannels = env.TWITCH_CHANNEL.split(",")
+        .map((ch) => ch.trim().toLowerCase())
+        .filter(Boolean);
     }
 
     // Parse relay channels filter
     if (env.TWITCH_RELAY_CHANNELS) {
       this.relayChannels = new Set(
-        env.TWITCH_RELAY_CHANNELS.split(",").map(ch => ch.trim().toLowerCase()).filter(Boolean)
+        env.TWITCH_RELAY_CHANNELS.split(",")
+          .map((ch) => ch.trim().toLowerCase())
+          .filter(Boolean)
       );
     }
 
     // Parse channel mapping
     if (env.TWITCH_CHANNEL_MAPPING) {
-      env.TWITCH_CHANNEL_MAPPING.split(",").forEach(mapping => {
-        const [twitchCh, discordCh] = mapping.split(":").map(s => s.trim());
+      env.TWITCH_CHANNEL_MAPPING.split(",").forEach((mapping) => {
+        const [twitchCh, discordCh] = mapping.split(":").map((s) => s.trim());
         if (twitchCh && discordCh) {
           this.channelMapping.set(twitchCh.toLowerCase(), discordCh);
         }
@@ -173,7 +177,13 @@ class BotState extends EventEmitter {
   /**
    * Record a relayed message mapping
    */
-  addRelayMapping(twitchMessageId, discordMessageId, discordChannelId, twitchChannel, twitchUsername) {
+  addRelayMapping(
+    twitchMessageId,
+    discordMessageId,
+    discordChannelId,
+    twitchChannel,
+    twitchUsername
+  ) {
     const now = Date.now();
     this.relayMessageMap.set(twitchMessageId, {
       discordMessageId,
@@ -188,7 +198,12 @@ class BotState extends EventEmitter {
     });
     this.metrics.messagesRelayed++;
     this.metrics.lastMessageTime = now;
-    this.emit("message:relayed", { twitchMessageId, discordMessageId, twitchChannel, twitchUsername });
+    this.emit("message:relayed", {
+      twitchMessageId,
+      discordMessageId,
+      twitchChannel,
+      twitchUsername
+    });
   }
 
   /**
@@ -591,7 +606,7 @@ class BotState extends EventEmitter {
     let msgs = this.chatBuffer;
     if (channel) {
       const normalizedChannel = channel.toLowerCase().replace(/^#/, "");
-      msgs = msgs.filter(m => m.channel === normalizedChannel);
+      msgs = msgs.filter((m) => m.channel === normalizedChannel);
     }
     return msgs.slice(-limit);
   }
@@ -601,7 +616,7 @@ class BotState extends EventEmitter {
    * @param {Array<string>} users - Array of usernames to ignore
    */
   setIgnoredUsers(users) {
-    this.chatIgnoredUsers = new Set(users.map(u => u.toLowerCase()));
+    this.chatIgnoredUsers = new Set(users.map((u) => u.toLowerCase()));
   }
 
   /**
@@ -649,7 +664,7 @@ class BotState extends EventEmitter {
     const now = Date.now();
     stats.hourlyMessages.push(now);
     // Keep only messages from last hour
-    stats.hourlyMessages = stats.hourlyMessages.filter(t => now - t < 3600000);
+    stats.hourlyMessages = stats.hourlyMessages.filter((t) => now - t < 3600000);
   }
 
   /**
@@ -678,7 +693,7 @@ class BotState extends EventEmitter {
       config: { ...this.config },
       channels: {
         // Strip # prefix that tmi.js adds to channel names
-        twitch: this.twitchChannels.map(ch => ch.replace(/^#/, "")),
+        twitch: this.twitchChannels.map((ch) => ch.replace(/^#/, "")),
         relayFilter: this.relayChannels ? [...this.relayChannels] : null,
         mapping: Object.fromEntries(this.channelMapping)
       },

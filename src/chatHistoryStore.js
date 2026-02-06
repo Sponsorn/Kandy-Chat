@@ -135,7 +135,7 @@ async function loadMessages(channel, sinceTimestamp = 0, limit = 500) {
 
   // Filter to JSON files and sort by date (newest first for recent messages)
   const jsonFiles = files
-    .filter(f => f.endsWith(".json"))
+    .filter((f) => f.endsWith(".json"))
     .sort()
     .reverse();
 
@@ -212,7 +212,9 @@ async function cleanupOldFiles(retentionDays = 3) {
   }
 
   if (totalDeleted > 0) {
-    console.log(`Chat history cleanup: deleted ${totalDeleted} files older than ${retentionDays} days`);
+    console.log(
+      `Chat history cleanup: deleted ${totalDeleted} files older than ${retentionDays} days`
+    );
   }
 }
 
@@ -222,7 +224,7 @@ async function cleanupOldFiles(retentionDays = 3) {
  */
 function scheduleCleanup(retentionDays = 3) {
   // Run cleanup immediately on start
-  cleanupOldFiles(retentionDays).catch(err => {
+  cleanupOldFiles(retentionDays).catch((err) => {
     console.error("Initial chat history cleanup failed:", err);
   });
 
@@ -238,19 +240,24 @@ function scheduleCleanup(retentionDays = 3) {
 
   // Schedule first run, then repeat daily
   setTimeout(() => {
-    cleanupOldFiles(retentionDays).catch(err => {
+    cleanupOldFiles(retentionDays).catch((err) => {
       console.error("Chat history cleanup failed:", err);
     });
 
     // Run daily at 3 AM
-    setInterval(() => {
-      cleanupOldFiles(retentionDays).catch(err => {
-        console.error("Chat history cleanup failed:", err);
-      });
-    }, 24 * 60 * 60 * 1000);
+    setInterval(
+      () => {
+        cleanupOldFiles(retentionDays).catch((err) => {
+          console.error("Chat history cleanup failed:", err);
+        });
+      },
+      24 * 60 * 60 * 1000
+    );
   }, msUntilNextRun);
 
-  console.log(`Chat history cleanup scheduled for 3 AM daily (next run in ${Math.round(msUntilNextRun / 1000 / 60)} minutes)`);
+  console.log(
+    `Chat history cleanup scheduled for 3 AM daily (next run in ${Math.round(msUntilNextRun / 1000 / 60)} minutes)`
+  );
 }
 
 /**

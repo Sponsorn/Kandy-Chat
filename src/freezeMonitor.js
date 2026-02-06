@@ -111,7 +111,12 @@ async function getPlaybackAccessToken(channel, clientId, authToken) {
   }
 
   const normalizedChannel = channel.toLowerCase();
-  const body = [{ ...PLAYBACK_ACCESS_QUERY, variables: { ...PLAYBACK_ACCESS_QUERY.variables, login: normalizedChannel } }];
+  const body = [
+    {
+      ...PLAYBACK_ACCESS_QUERY,
+      variables: { ...PLAYBACK_ACCESS_QUERY.variables, login: normalizedChannel }
+    }
+  ];
 
   const headers = {
     "Client-ID": clientId,
@@ -165,15 +170,9 @@ export async function startFreezeMonitor(
   const debug = parseBool(env.FREEZE_DEBUG, false);
   const offlineFailThreshold = parseIntEnv(env.FREEZE_OFFLINE_FAILS, 3);
   const recoveryFrames = parseIntEnv(env.FREEZE_RECOVERY_FRAMES, 3);
-  const offlineBackoffSeconds = parseIntEnv(
-    env.FREEZE_OFFLINE_BACKOFF_SECONDS,
-    30
-  );
+  const offlineBackoffSeconds = parseIntEnv(env.FREEZE_OFFLINE_BACKOFF_SECONDS, 30);
   // Polling interval when EventSub is disabled (default: 60 seconds)
-  const pollWhenOfflineSeconds = parseIntEnv(
-    env.FREEZE_POLL_WHEN_OFFLINE_SECONDS,
-    60
-  );
+  const pollWhenOfflineSeconds = parseIntEnv(env.FREEZE_POLL_WHEN_OFFLINE_SECONDS, 60);
   let nextRefreshAt = 0;
 
   // If no waitForOnline provided, use polling-based recovery
@@ -194,9 +193,7 @@ export async function startFreezeMonitor(
     return;
   }
 
-  logger?.log(
-    `Freeze monitor enabled: sample ${sampleSeconds}s, threshold ${thresholdSeconds}s`
-  );
+  logger?.log(`Freeze monitor enabled: sample ${sampleSeconds}s, threshold ${thresholdSeconds}s`);
 
   let lastHash = null;
   let lastChangeAt = Date.now();

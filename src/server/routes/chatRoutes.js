@@ -112,10 +112,15 @@ export function createChatRoutes() {
 
       // Audit log
       const actor = req.session?.user?.username || "unknown";
-      botState.recordAuditEvent("ignored_user_add", actor, {
-        username: trimmed,
-        total: ignoredUsers.length
-      }, "dashboard");
+      botState.recordAuditEvent(
+        "ignored_user_add",
+        actor,
+        {
+          username: trimmed,
+          total: ignoredUsers.length
+        },
+        "dashboard"
+      );
 
       res.json({
         success: true,
@@ -178,10 +183,15 @@ export function createChatRoutes() {
 
       // Audit log
       const actor = req.session?.user?.username || "unknown";
-      botState.recordAuditEvent("config_update", actor, {
-        section: "chatFeed",
-        changes: updates
-      }, "dashboard");
+      botState.recordAuditEvent(
+        "config_update",
+        actor,
+        {
+          section: "chatFeed",
+          changes: updates
+        },
+        "dashboard"
+      );
 
       res.json({
         success: true,
@@ -235,10 +245,15 @@ export function createChatRoutes() {
 
       // Audit log
       const actor = req.session?.user?.username || "unknown";
-      botState.recordAuditEvent("ignored_user_remove", actor, {
-        username: trimmed,
-        total: ignoredUsers.length
-      }, "dashboard");
+      botState.recordAuditEvent(
+        "ignored_user_remove",
+        actor,
+        {
+          username: trimmed,
+          total: ignoredUsers.length
+        },
+        "dashboard"
+      );
 
       res.json({
         success: true,

@@ -8,7 +8,13 @@
   "scripts": {
     "start": "node src/index.js",
     "deploy-commands": "node deploy-commands.js",
-    "deploy-eventsub": "node deploy-eventsub.js"
+    "deploy-eventsub": "node deploy-eventsub.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "discord.js": "^14.15.3",
@@ -16,5 +22,11 @@
     "express": "^4.19.2",
     "tmi.js": "^1.8.5",
     "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.2.0",
+    "vitest": "^3.0.0"
   }
 }
