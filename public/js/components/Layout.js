@@ -62,6 +62,7 @@ function Sidebar() {
           <${NavLink} href="/settings" icon="⚙️" requireMod>Settings<//>
           <${NavLink} href="/control" icon="🎛️" requireAdmin>Control Panel<//>
           <${NavLink} href="/audit" icon="📜" requireAdmin>Audit Log<//>
+          <${NavLink} href="/logs" icon="🖥️" requireAdmin>Bot Logs<//>
         </ul>
       </nav>
 

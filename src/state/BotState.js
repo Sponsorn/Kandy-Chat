@@ -69,6 +69,10 @@ class BotState extends EventEmitter {
       freezeDetectedByChannel: {} // { "kandyland": null, "kandylandvods": 1234567890 }
     };
 
+    // Bot log buffer (console output for dashboard)
+    this.logBuffer = [];
+    this.maxLogBuffer = 500;
+
     // Audit log for admin actions
     this.auditLog = [];
     this.maxAuditLogEntries = 500;
@@ -262,6 +266,29 @@ class BotState extends EventEmitter {
 
     this.emit("audit:event", entry);
     return entry;
+  }
+
+  /**
+   * Add a log entry to the buffer (for console output streaming)
+   * @param {string} level - Log level: "info", "warn", "error"
+   * @param {Array} args - Console arguments
+   */
+  addLogEntry(level, args) {
+    const message = args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ");
+
+    const entry = {
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      level,
+      message,
+      timestamp: Date.now()
+    };
+
+    this.logBuffer.push(entry);
+    if (this.logBuffer.length > this.maxLogBuffer) {
+      this.logBuffer.shift();
+    }
+
+    this.emit("bot:log", entry);
   }
 
   /**

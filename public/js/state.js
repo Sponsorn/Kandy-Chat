@@ -91,6 +91,18 @@ export function addAuditEntry(entry) {
   auditLog.value = newEntries.slice(0, MAX_AUDIT_ENTRIES);
 }
 
+// Bot logs (admin only)
+export const botLogs = signal([]);
+const MAX_BOT_LOGS = 500;
+
+export function addBotLog(entry) {
+  botLogs.value = [...botLogs.value, entry].slice(-MAX_BOT_LOGS);
+}
+
+export function setBotLogs(logs) {
+  botLogs.value = logs.slice(-MAX_BOT_LOGS);
+}
+
 // Blacklist
 export const blacklistWords = signal([]);
 export const blacklistRegex = signal([]);
@@ -157,6 +169,10 @@ export function updateFromWs(data) {
     if (data.type === "init" && data.data.recentChat) {
       handleInitChatMessages(data.data.recentChat);
     }
+    // Handle initial bot logs from init
+    if (data.type === "init" && data.data.recentLogs) {
+      setBotLogs(data.data.recentLogs);
+    }
     dispatchStatusUpdate();
   } else if (data.type === "message:relay") {
     addMessage(data.data);
@@ -199,6 +215,8 @@ export function updateFromWs(data) {
     addChatMessage(data.data);
   } else if (data.type === "chat:message-deleted") {
     markChatMessageDeleted(data.data.id);
+  } else if (data.type === "bot:log") {
+    addBotLog(data.data);
   } else if (data.type === "raid:incoming") {
     recentRaids.value = [data.data, ...recentRaids.value].slice(0, 10);
     window.dispatchEvent(new CustomEvent("app:raid-incoming", { detail: data.data }));

@@ -29,14 +29,23 @@ import {
   loadPersistedRefreshToken
 } from "./services/tokenService.js";
 
-// Add timestamps to all console output
+// Add timestamps to all console output and stream to dashboard
 const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
 const originalConsoleWarn = console.warn;
 const getTimestamp = () => new Date().toISOString();
-console.log = (...args) => originalConsoleLog(`[${getTimestamp()}]`, ...args);
-console.error = (...args) => originalConsoleError(`[${getTimestamp()}]`, ...args);
-console.warn = (...args) => originalConsoleWarn(`[${getTimestamp()}]`, ...args);
+console.log = (...args) => {
+  originalConsoleLog(`[${getTimestamp()}]`, ...args);
+  botState.addLogEntry("info", args);
+};
+console.error = (...args) => {
+  originalConsoleError(`[${getTimestamp()}]`, ...args);
+  botState.addLogEntry("error", args);
+};
+console.warn = (...args) => {
+  originalConsoleWarn(`[${getTimestamp()}]`, ...args);
+  botState.addLogEntry("warn", args);
+};
 
 // Validate configuration
 validateConfigOrThrow(process.env);

@@ -73,14 +73,21 @@ export function createDashboardSocket(server) {
     }
 
     // Send initial state
+    const initData = {
+      connected: true,
+      permission: clientInfo.permission,
+      status: botState.getSnapshot(),
+      recentChat
+    };
+
+    // Include recent logs for admin clients
+    if (clientInfo.permission >= Permissions.ADMIN) {
+      initData.recentLogs = botState.logBuffer.slice(-500);
+    }
+
     sendToClient(ws, {
       type: "init",
-      data: {
-        connected: true,
-        permission: clientInfo.permission,
-        status: botState.getSnapshot(),
-        recentChat
-      }
+      data: initData
     });
 
     // Handle incoming messages
@@ -117,6 +124,9 @@ export function createDashboardSocket(server) {
           for (const event of data.events) {
             // Check permission for certain events
             if (event === "mod:action" && clientInfo.permission < Permissions.MODERATOR) {
+              continue;
+            }
+            if (event === "bot:log" && clientInfo.permission < Permissions.ADMIN) {
               continue;
             }
             clientInfo.subscribedEvents.add(event);
@@ -207,6 +217,10 @@ export function createDashboardSocket(server) {
 
   botState.on("audit:event", (data) => {
     broadcast("audit:event", data, Permissions.ADMIN);
+  });
+
+  botState.on("bot:log", (data) => {
+    broadcast("bot:log", data, Permissions.ADMIN);
   });
 
   botState.on("raid:incoming", (data) => {

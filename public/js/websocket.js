@@ -39,7 +39,8 @@ export function connect() {
               "mod:action",
               "stream:status",
               "config:update",
-              "status:update"
+              "status:update",
+              "bot:log"
             ]
           }
         })

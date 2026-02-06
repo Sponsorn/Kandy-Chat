@@ -17,6 +17,7 @@ import { ControlPanel } from "./components/ControlPanel.js";
 import { AuditLog } from "./components/AuditLog.js";
 import { ChannelColumn } from "./components/ChannelColumn.js";
 import { IgnoredUsersEditor } from "./components/IgnoredUsersEditor.js";
+import { BotLog } from "./components/BotLog.js";
 
 // Utility to format channel display name
 function formatChannelName(channel) {
@@ -170,6 +171,24 @@ function AuditPage() {
   `;
 }
 
+function BotLogPage() {
+  if (!canAdmin.value) {
+    return html`
+      <div class="alert alert-error">You don't have permission to view this page.</div>
+    `;
+  }
+
+  return html`
+    <div>
+      <header class="page-header">
+        <h1 class="page-title">Bot Logs</h1>
+        <p class="page-subtitle">Real-time console output</p>
+      </header>
+      <${BotLog} />
+    </div>
+  `;
+}
+
 function NotFoundPage() {
   return html`
     <div class="empty-state">
@@ -197,6 +216,8 @@ function Router({ route }) {
       return html`<${ControlPage} />`;
     case "/audit":
       return html`<${AuditPage} />`;
+    case "/logs":
+      return html`<${BotLogPage} />`;
     default:
       return html`<${NotFoundPage} />`;
   }
