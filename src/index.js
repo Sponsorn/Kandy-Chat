@@ -251,6 +251,8 @@ async function start() {
   startRelayCleanup();
 
   // Setup EventSub with freeze monitor integration
+  const lastOnlineTimestamp = new Map(); // channel -> Date.now() of last stream.online
+  const pendingOfflineTimers = new Map(); // channel -> setTimeout id (for offline→online order)
   let freezeOnlineResolve = null;
   const freezeOnlineSignal = () => {
     if (freezeOnlineResolve) {
@@ -278,6 +280,15 @@ async function start() {
       if (type === "stream.online") {
         console.log(`${broadcasterName} went live on Twitch`);
         botState.setStreamStatus(broadcasterName.toLowerCase(), "online");
+        lastOnlineTimestamp.set(broadcasterName.toLowerCase(), Date.now());
+
+        // Cancel any pending offline alert (handles offline→online restart order)
+        const pendingTimer = pendingOfflineTimers.get(broadcasterName.toLowerCase());
+        if (pendingTimer) {
+          clearTimeout(pendingTimer);
+          pendingOfflineTimers.delete(broadcasterName.toLowerCase());
+          console.log(`Cancelled pending offline alert for ${broadcasterName} (stream restart)`);
+        }
 
         // Edit the offline message if it exists
         const offlineMsg = botState.getOfflineMessage(broadcasterName.toLowerCase());
@@ -321,23 +332,62 @@ async function start() {
           return;
         }
 
-        const mention = STREAM_ALERT_ROLE_ID ? `<@&${STREAM_ALERT_ROLE_ID}> ` : "";
-        const content = `${mention}${broadcasterName} has gone offline`;
-
-        try {
-          const messages = await relaySystemMessage(content, DISCORD_CHANNEL_ID);
-          // Store first message ID for later editing when stream comes back online
-          if (messages?.length > 0) {
-            botState.setOfflineMessage(
-              broadcasterName.toLowerCase(),
-              messages[0].id,
-              messages[0].channel.id,
-              messages[0].content
-            );
-          }
-        } catch (error) {
-          console.error("Failed to send offline stream alert", error);
+        // Suppress offline alert if a stream.online was received very recently
+        // This handles Twitch 48h automatic stream restarts where online+offline
+        // events arrive within milliseconds of each other
+        const restartSuppressMs =
+          (parseInt(process.env.RESTART_SUPPRESS_WINDOW_SECONDS, 10) || 60) * 1000;
+        const lastOnline = lastOnlineTimestamp.get(broadcasterName.toLowerCase());
+        if (lastOnline && Date.now() - lastOnline < restartSuppressMs) {
+          console.log(
+            `Skipping offline alert - ${broadcasterName} had a stream.online ${Date.now() - lastOnline}ms ago (stream restart)`
+          );
+          botState.setStreamStatus(broadcasterName.toLowerCase(), "online");
+          return;
         }
+
+        // Delay offline alert to handle offline→online restart order
+        // If a stream.online arrives during the delay, the timer is cancelled
+        const offlineDelayMs =
+          (parseInt(process.env.RESTART_SUPPRESS_WINDOW_SECONDS, 10) || 60) * 1000;
+        console.log(`Delaying offline alert for ${broadcasterName} by ${offlineDelayMs / 1000}s`);
+
+        const existing = pendingOfflineTimers.get(broadcasterName.toLowerCase());
+        if (existing) clearTimeout(existing);
+
+        const timerId = setTimeout(async () => {
+          pendingOfflineTimers.delete(broadcasterName.toLowerCase());
+
+          // Re-check — stream may have come back online during the delay
+          if (
+            botState.metrics.streamStatusByChannel[broadcasterName.toLowerCase()] === "online"
+          ) {
+            console.log(
+              `Skipping offline alert - ${broadcasterName} came back online during delay`
+            );
+            return;
+          }
+
+          const mention = STREAM_ALERT_ROLE_ID ? `<@&${STREAM_ALERT_ROLE_ID}> ` : "";
+          const content = `${mention}${broadcasterName} has gone offline`;
+
+          try {
+            const messages = await relaySystemMessage(content, DISCORD_CHANNEL_ID);
+            // Store first message ID for later editing when stream comes back online
+            if (messages?.length > 0) {
+              botState.setOfflineMessage(
+                broadcasterName.toLowerCase(),
+                messages[0].id,
+                messages[0].channel.id,
+                messages[0].content
+              );
+            }
+          } catch (error) {
+            console.error("Failed to send offline stream alert", error);
+          }
+        }, offlineDelayMs);
+
+        pendingOfflineTimers.set(broadcasterName.toLowerCase(), timerId);
       } else if (type === "channel.raid") {
         const fromBroadcaster =
           payload?.event?.from_broadcaster_user_name || payload?.event?.from_broadcaster_user_login;
