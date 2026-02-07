@@ -285,6 +285,14 @@ body {
   opacity: 0.5;
 }
 
+.chat-message.deleted:hover .chat-content {
+  opacity: 0.8;
+}
+
+.chat-message.deleted:hover .chat-content s {
+  text-decoration: none;
+}
+
 .chat-timestamp {
   color: var(--text-muted);
   font-size: 0.75rem;
