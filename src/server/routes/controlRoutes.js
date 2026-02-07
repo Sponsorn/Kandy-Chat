@@ -33,6 +33,24 @@ export function createControlRoutes(options = {}) {
   });
 
   /**
+   * GET /api/modlog - Get moderation log entries (requires moderator)
+   */
+  router.get("/api/modlog", requireAuth(Permissions.MODERATOR), (req, res) => {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+    const offset = parseInt(req.query.offset, 10) || 0;
+
+    const entries = botState.getModLog(limit, offset);
+    const total = botState.modActions.length;
+
+    res.json({
+      entries,
+      total,
+      limit,
+      offset
+    });
+  });
+
+  /**
    * POST /api/control/restart - Restart the bot (requires admin)
    */
   router.post("/api/control/restart", requireAuth(Permissions.ADMIN), (req, res) => {
@@ -122,21 +140,31 @@ export function createControlRoutes(options = {}) {
       return res.status(503).json({ error: "Twitch API client not available" });
     }
 
+    const actor = req.session?.user?.username || "dashboard";
+
     try {
       await twitchAPIClient.deleteMessage(channel, messageId);
 
       botState.recordModerationAction(
         "delete",
-        req.session?.user?.username || "dashboard",
+        actor,
         "unknown",
-        {
-          channel,
-          messageId
-        }
+        { channel, messageId },
+        "dashboard",
+        "success"
       );
 
       res.json({ success: true, message: "Message deleted" });
     } catch (error) {
+      botState.recordModerationAction(
+        "delete",
+        actor,
+        "unknown",
+        { channel, messageId },
+        "dashboard",
+        "failed",
+        error.message
+      );
       res.status(500).json({ error: error.message });
     }
   });
@@ -156,22 +184,31 @@ export function createControlRoutes(options = {}) {
     }
 
     const seconds = parseInt(duration, 10) || botState.config.reactionTimeoutSeconds;
+    const actor = req.session?.user?.username || "dashboard";
 
     try {
       await twitchAPIClient.timeoutUser(channel, username, seconds);
 
       botState.recordModerationAction(
         "timeout",
-        req.session?.user?.username || "dashboard",
+        actor,
         username,
-        {
-          channel,
-          duration: seconds
-        }
+        { channel, duration: seconds },
+        "dashboard",
+        "success"
       );
 
       res.json({ success: true, message: `User ${username} timed out for ${seconds} seconds` });
     } catch (error) {
+      botState.recordModerationAction(
+        "timeout",
+        actor,
+        username,
+        { channel, duration: seconds },
+        "dashboard",
+        "failed",
+        error.message
+      );
       res.status(500).json({ error: error.message });
     }
   });
@@ -190,15 +227,31 @@ export function createControlRoutes(options = {}) {
       return res.status(503).json({ error: "Twitch API client not available" });
     }
 
+    const actor = req.session?.user?.username || "dashboard";
+
     try {
       await twitchAPIClient.banUser(channel, username);
 
-      botState.recordModerationAction("ban", req.session?.user?.username || "dashboard", username, {
-        channel
-      });
+      botState.recordModerationAction(
+        "ban",
+        actor,
+        username,
+        { channel },
+        "dashboard",
+        "success"
+      );
 
       res.json({ success: true, message: `User ${username} banned` });
     } catch (error) {
+      botState.recordModerationAction(
+        "ban",
+        actor,
+        username,
+        { channel },
+        "dashboard",
+        "failed",
+        error.message
+      );
       res.status(500).json({ error: error.message });
     }
   });
@@ -218,22 +271,31 @@ export function createControlRoutes(options = {}) {
     }
 
     const warnReason = reason || "Violating community guidelines";
+    const actor = req.session?.user?.username || "dashboard";
 
     try {
       await twitchAPIClient.warnUser(channel, username, warnReason);
 
       botState.recordModerationAction(
         "warn",
-        req.session?.user?.username || "dashboard",
+        actor,
         username,
-        {
-          channel,
-          reason: warnReason
-        }
+        { channel, reason: warnReason },
+        "dashboard",
+        "success"
       );
 
       res.json({ success: true, message: `User ${username} warned` });
     } catch (error) {
+      botState.recordModerationAction(
+        "warn",
+        actor,
+        username,
+        { channel, reason: warnReason },
+        "dashboard",
+        "failed",
+        error.message
+      );
       res.status(500).json({ error: error.message });
     }
   });

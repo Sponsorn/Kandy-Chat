@@ -73,12 +73,16 @@ export function markChatMessageDeleted(messageId) {
 
 // Mod actions
 export const modActions = signal([]);
-const MAX_MOD_ACTIONS = 100;
+const MAX_MOD_ACTIONS = 200;
 
 export function addModAction(action) {
   const current = modActions.value;
-  const newActions = [{ ...action, id: Date.now() + Math.random() }, ...current];
+  const newActions = [action, ...current.filter((e) => e.id !== action.id)];
   modActions.value = newActions.slice(0, MAX_MOD_ACTIONS);
+}
+
+export function setModActions(actions) {
+  modActions.value = actions.slice(0, MAX_MOD_ACTIONS);
 }
 
 // Audit log (admin only)
@@ -168,6 +172,10 @@ export function updateFromWs(data) {
     // Handle initial chat messages from init
     if (data.type === "init" && data.data.recentChat) {
       handleInitChatMessages(data.data.recentChat);
+    }
+    // Handle initial mod actions from init
+    if (data.type === "init" && data.data.recentModActions) {
+      setModActions(data.data.recentModActions);
     }
     // Handle initial bot logs from init
     if (data.type === "init" && data.data.recentLogs) {

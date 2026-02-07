@@ -160,6 +160,13 @@ export const audit = {
   }
 };
 
+// Moderation Log API
+export const modlog = {
+  async get(limit = 100, offset = 0) {
+    return request("GET", `/api/modlog?limit=${limit}&offset=${offset}`);
+  }
+};
+
 // Chat API
 export const chat = {
   async getHistory(channel, limit = 500) {

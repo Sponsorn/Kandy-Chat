@@ -86,11 +86,15 @@ export async function handleReactionAdd(reaction, user, twitchAPIClient) {
       );
     }
 
-    // Record moderation action
-    botState.recordModerationAction(reactionAction, user.username, relay.twitchUsername, {
-      message: twitchMessageText,
-      channel: channelName
-    });
+    // Record moderation action (success)
+    botState.recordModerationAction(
+      reactionAction,
+      user.username,
+      relay.twitchUsername,
+      { message: twitchMessageText, channel: channelName },
+      "discord",
+      "success"
+    );
 
     // Remove other reactions, keep only the moderator's clicked reaction
     try {
@@ -124,6 +128,17 @@ export async function handleReactionAdd(reaction, user, twitchAPIClient) {
     }
   } catch (error) {
     console.warn("Failed to moderate Twitch message", error);
+
+    // Record failed moderation action
+    botState.recordModerationAction(
+      reactionAction,
+      user.username,
+      relay.twitchUsername,
+      { message: twitchMessageText, channel: channelName },
+      "discord",
+      "failed",
+      error.message
+    );
   }
 }
 

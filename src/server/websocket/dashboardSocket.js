@@ -80,6 +80,11 @@ export function createDashboardSocket(server) {
       recentChat
     };
 
+    // Include recent mod actions for moderator+ clients
+    if (clientInfo.permission >= Permissions.MODERATOR) {
+      initData.recentModActions = botState.modActions.slice(0, 100);
+    }
+
     // Include recent logs for admin clients
     if (clientInfo.permission >= Permissions.ADMIN) {
       initData.recentLogs = botState.logBuffer.slice(-500);

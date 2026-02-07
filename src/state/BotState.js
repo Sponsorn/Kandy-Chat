@@ -77,6 +77,10 @@ class BotState extends EventEmitter {
     this.auditLog = [];
     this.maxAuditLogEntries = 500;
 
+    // Moderation action log
+    this.modActions = [];
+    this.maxModActions = 500;
+
     // Offline message tracking for edit-on-recovery
     this.offlineMessageIds = new Map(); // channel -> { messageId, channelId, originalContent }
 
@@ -234,10 +238,36 @@ class BotState extends EventEmitter {
 
   /**
    * Record a moderation action
+   * @param {string} action - Action type (delete, timeout, ban, warn)
+   * @param {string} moderator - Username of the moderator
+   * @param {string} target - Username of the target user
+   * @param {object} details - Additional details (message, channel, duration, reason)
+   * @param {string} source - Source of the action ("discord" | "dashboard")
+   * @param {string} status - Result status ("success" | "failed")
+   * @param {string} [error] - Error message if status is "failed"
    */
-  recordModerationAction(action, moderator, target, details = {}) {
+  recordModerationAction(action, moderator, target, details = {}, source = "discord", status = "success", error = null) {
     this.metrics.moderationActions++;
-    this.emit("mod:action", { action, moderator, target, details, timestamp: Date.now() });
+
+    const entry = {
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      action,
+      moderator,
+      target,
+      details,
+      source,
+      status,
+      error,
+      timestamp: Date.now()
+    };
+
+    this.modActions.unshift(entry);
+    if (this.modActions.length > this.maxModActions) {
+      this.modActions = this.modActions.slice(0, this.maxModActions);
+    }
+
+    this.emit("mod:action", entry);
+    return entry;
   }
 
   /**
@@ -298,6 +328,15 @@ class BotState extends EventEmitter {
    */
   getAuditLog(limit = 50, offset = 0) {
     return this.auditLog.slice(offset, offset + limit);
+  }
+
+  /**
+   * Get moderation log entries
+   * @param {number} limit - Max entries to return
+   * @param {number} offset - Offset for pagination
+   */
+  getModLog(limit = 50, offset = 0) {
+    return this.modActions.slice(offset, offset + limit);
   }
 
   /**
