@@ -259,6 +259,9 @@ export async function startFreezeMonitor(
     } catch (error) {
       consecutiveFailures += 1;
       logger?.warn(`Freeze monitor error: ${error.message}`);
+      // Reset freeze timer so timeouts don't inflate the elapsed time
+      // between successful captures (prevents false freeze alerts)
+      lastChangeAt = Date.now();
       if (!offline && consecutiveFailures >= offlineFailThreshold) {
         offline = true;
         onOffline?.();
