@@ -12,5 +12,6 @@ build/
 coverage/
 CLAUDE.md
 review.md
+review_v1.md
 changelog.md
 .claude

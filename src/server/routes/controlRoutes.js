@@ -3,6 +3,7 @@ import { writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import botState from "../../state/BotState.js";
 import { requireAuth, Permissions } from "../../auth/sessionManager.js";
+import { validateChannelName, validateMessageId, validateUsername } from "../../utils/validation.js";
 
 const STOP_FLAG_PATH = join(process.cwd(), "data", ".stopped");
 
@@ -136,6 +137,13 @@ export function createControlRoutes(options = {}) {
       return res.status(400).json({ error: "Missing channel or messageId" });
     }
 
+    if (!validateChannelName(channel)) {
+      return res.status(400).json({ error: "Invalid channel name" });
+    }
+    if (!validateMessageId(messageId)) {
+      return res.status(400).json({ error: "Invalid message ID" });
+    }
+
     if (!twitchAPIClient) {
       return res.status(503).json({ error: "Twitch API client not available" });
     }
@@ -179,11 +187,21 @@ export function createControlRoutes(options = {}) {
       return res.status(400).json({ error: "Missing channel or username" });
     }
 
+    if (!validateChannelName(channel)) {
+      return res.status(400).json({ error: "Invalid channel name" });
+    }
+    if (!validateUsername(username)) {
+      return res.status(400).json({ error: "Invalid username" });
+    }
+
     if (!twitchAPIClient) {
       return res.status(503).json({ error: "Twitch API client not available" });
     }
 
     const seconds = parseInt(duration, 10) || botState.config.reactionTimeoutSeconds;
+    if (seconds < 1 || seconds > 1209600) {
+      return res.status(400).json({ error: "Duration must be between 1 and 1209600 seconds" });
+    }
     const actor = req.session?.user?.username || "dashboard";
 
     try {
@@ -221,6 +239,13 @@ export function createControlRoutes(options = {}) {
 
     if (!channel || !username) {
       return res.status(400).json({ error: "Missing channel or username" });
+    }
+
+    if (!validateChannelName(channel)) {
+      return res.status(400).json({ error: "Invalid channel name" });
+    }
+    if (!validateUsername(username)) {
+      return res.status(400).json({ error: "Invalid username" });
     }
 
     if (!twitchAPIClient) {
@@ -264,6 +289,13 @@ export function createControlRoutes(options = {}) {
 
     if (!channel || !username) {
       return res.status(400).json({ error: "Missing channel or username" });
+    }
+
+    if (!validateChannelName(channel)) {
+      return res.status(400).json({ error: "Invalid channel name" });
+    }
+    if (!validateUsername(username)) {
+      return res.status(400).json({ error: "Invalid username" });
     }
 
     if (!twitchAPIClient) {

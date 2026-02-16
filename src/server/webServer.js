@@ -273,5 +273,3 @@ export async function startWebServer(env, options = {}) {
   return server;
 }
 
-// Re-export for backwards compatibility
-export { startWebServer as startEventSubServer };

@@ -222,10 +222,7 @@ export function createDiscordAuthRoutes(router, config) {
         username: user.username,
         discriminator: user.discriminator,
         avatar: buildAvatarUrl(user.id, user.avatar),
-        roles,
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token,
-        expiresAt: Date.now() + tokens.expires_in * 1000
+        roles
       };
 
       const sessionId = createSession(userData);

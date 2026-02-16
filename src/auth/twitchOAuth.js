@@ -218,10 +218,7 @@ export function createTwitchAuthRoutes(router, config) {
         username: user.login,
         displayName: user.display_name,
         avatar: user.profile_image_url,
-        modChannels,
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token,
-        expiresAt: Date.now() + tokens.expires_in * 1000
+        modChannels
       };
 
       const sessionId = createSession(userData);

@@ -337,6 +337,7 @@ export async function handleExportBlacklist(interaction, { twitchAPIClient, rela
         console.error(`Failed to add "${word}" to ${channel}`, error);
         errors.push(`${word}: ${error.message}`);
       }
+      await new Promise((r) => setTimeout(r, 150));
     }
 
     let message = `Exported ${addedCount} of ${words.length} blacklist words to channel **${channel}**`;

@@ -24,8 +24,12 @@ export function createDashboardSocket(server) {
     const sessionId = sessionMatch ? sessionMatch[1] : null;
     const session = getSession(sessionId);
 
-    // Determine permission level (allow VIEWER connections with limited data)
+    // Reject unauthenticated or underprivileged connections
     const permission = session?.permission ?? Permissions.VIEWER;
+    if (!session || permission < Permissions.MODERATOR) {
+      ws.close(4401, "Unauthorized");
+      return;
+    }
 
     // Store client info
     const clientInfo = {
@@ -170,7 +174,7 @@ export function createDashboardSocket(server) {
   /**
    * Broadcast to all clients subscribed to an event
    */
-  function broadcast(eventType, data, minPermission = Permissions.VIEWER) {
+  function broadcast(eventType, data, minPermission = Permissions.MODERATOR) {
     const message = JSON.stringify({ type: eventType, data, timestamp: Date.now() });
 
     for (const [ws, clientInfo] of clients.entries()) {
@@ -185,15 +189,15 @@ export function createDashboardSocket(server) {
   // Subscribe to BotState events and broadcast to clients
 
   botState.on("message:relayed", (data) => {
-    broadcast("message:relay", data, Permissions.VIEWER);
+    broadcast("message:relay", data, Permissions.MODERATOR);
   });
 
   botState.on("chat:message", (data) => {
-    broadcast("chat:message", data, Permissions.VIEWER);
+    broadcast("chat:message", data, Permissions.MODERATOR);
   });
 
   botState.on("chat:message-deleted", (data) => {
-    broadcast("chat:message-deleted", data, Permissions.VIEWER);
+    broadcast("chat:message-deleted", data, Permissions.MODERATOR);
   });
 
   botState.on("mod:action", (data) => {
@@ -201,7 +205,7 @@ export function createDashboardSocket(server) {
   });
 
   botState.on("stream:status", (data) => {
-    broadcast("stream:status", data, Permissions.VIEWER);
+    broadcast("stream:status", data, Permissions.MODERATOR);
   });
 
   botState.on("blacklist:updated", (data) => {
@@ -229,12 +233,12 @@ export function createDashboardSocket(server) {
   });
 
   botState.on("raid:incoming", (data) => {
-    broadcast("raid:incoming", data, Permissions.VIEWER);
+    broadcast("raid:incoming", data, Permissions.MODERATOR);
   });
 
   // Periodic status broadcast every 30 seconds
   setInterval(() => {
-    broadcast("status:update", botState.getSnapshot(), Permissions.VIEWER);
+    broadcast("status:update", botState.getSnapshot(), Permissions.MODERATOR);
   }, 30000);
 
   return wss;
