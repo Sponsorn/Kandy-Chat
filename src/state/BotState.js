@@ -98,7 +98,8 @@ class BotState extends EventEmitter {
         ban: null,
         warn: null
       },
-      reactionTimeoutSeconds: 60
+      reactionTimeoutSeconds: 60,
+      moderationUseButtons: false
     };
   }
 
@@ -116,6 +117,7 @@ class BotState extends EventEmitter {
       warn: env.REACTION_WARN_EMOJI || null
     };
     this.config.reactionTimeoutSeconds = parseInt(env.REACTION_TIMEOUT_SECONDS, 10) || 60;
+    this.config.moderationUseButtons = env.MODERATION_USE_BUTTONS?.toLowerCase() === "true";
 
     // Parse Twitch channels
     if (env.TWITCH_CHANNEL) {
@@ -190,18 +192,23 @@ class BotState extends EventEmitter {
     discordMessageId,
     discordChannelId,
     twitchChannel,
-    twitchUsername
+    twitchUsername,
+    twitchMessage,
+    formattedText
   ) {
     const now = Date.now();
     this.relayMessageMap.set(twitchMessageId, {
       discordMessageId,
       discordChannelId,
+      formattedText,
       timestamp: now
     });
     this.relayDiscordMap.set(discordMessageId, {
       twitchMessageId,
       twitchChannel,
       twitchUsername,
+      twitchMessage,
+      formattedText,
       timestamp: now
     });
     this.metrics.messagesRelayed++;
@@ -246,7 +253,15 @@ class BotState extends EventEmitter {
    * @param {string} status - Result status ("success" | "failed")
    * @param {string} [error] - Error message if status is "failed"
    */
-  recordModerationAction(action, moderator, target, details = {}, source = "discord", status = "success", error = null) {
+  recordModerationAction(
+    action,
+    moderator,
+    target,
+    details = {},
+    source = "discord",
+    status = "success",
+    error = null
+  ) {
     this.metrics.moderationActions++;
 
     const entry = {

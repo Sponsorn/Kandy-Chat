@@ -1,4 +1,5 @@
 import botState from "../state/BotState.js";
+import { buildNormalV2Message, buildSuspiciousV2Message } from "./messageBuilder.js";
 
 const RELAY_CACHE_TTL_MS = 1 * 60 * 60 * 1000; // 1 hour
 
@@ -105,7 +106,6 @@ export async function relayToDiscord(username, message, twitchChannel, discordCh
   }
 
   const suspiciousMatch = checkSuspiciousMessage(message);
-  const suffix = suspiciousMatch ? ` ⚠️ Suspicious message [${suspiciousMatch}]` : "";
 
   // Add channel prefix if multi-channel mode
   const channelPrefix =
@@ -113,22 +113,37 @@ export async function relayToDiscord(username, message, twitchChannel, discordCh
       ? `[${twitchChannel.replace(/^#/, "")}] `
       : "";
 
+  const formattedText = `${channelPrefix}${formatRelayMessage(username, message)}`;
+
   let sent = null;
-  for (const channel of targetChannels) {
-    if (!channel?.isTextBased()) continue;
-    const result = await channel.send(
-      `${channelPrefix}${formatRelayMessage(username, message)}${suffix}`
-    );
-    if (suspiciousMatch) {
-      addModerationReactions(result).catch((error) => {
-        console.warn("Failed to add moderation reactions", error);
-      });
+  if (botState.config.moderationUseButtons) {
+    // V2 Components path
+    const payload = suspiciousMatch
+      ? buildSuspiciousV2Message(formattedText, suspiciousMatch)
+      : buildNormalV2Message(formattedText);
+
+    for (const channel of targetChannels) {
+      if (!channel?.isTextBased()) continue;
+      const result = await channel.send(payload);
+      if (!sent) sent = result;
     }
-    if (!sent) sent = result;
+  } else {
+    // Legacy path (emoji reactions)
+    const suffix = suspiciousMatch ? ` ⚠️ Suspicious message [${suspiciousMatch}]` : "";
+    for (const channel of targetChannels) {
+      if (!channel?.isTextBased()) continue;
+      const result = await channel.send(`${formattedText}${suffix}`);
+      if (suspiciousMatch) {
+        addModerationReactions(result).catch((error) => {
+          console.warn("Failed to add moderation reactions", error);
+        });
+      }
+      if (!sent) sent = result;
+    }
   }
 
   console.log(`Relayed [${twitchChannel || "unknown"}]: ${username}: ${message}`);
-  return sent;
+  return { sent, formattedText };
 }
 
 /**
@@ -178,7 +193,14 @@ export function startRelayCleanup(intervalMs = 15 * 60 * 1000) {
 /**
  * Record a relay mapping with auto-expiry
  */
-export function recordRelayMapping(twitchMessageId, discordMessage, twitchChannel, twitchUsername) {
+export function recordRelayMapping(
+  twitchMessageId,
+  discordMessage,
+  twitchChannel,
+  twitchUsername,
+  twitchMessage,
+  formattedText
+) {
   if (!twitchMessageId || !discordMessage) return;
 
   botState.addRelayMapping(
@@ -186,7 +208,9 @@ export function recordRelayMapping(twitchMessageId, discordMessage, twitchChanne
     discordMessage.id,
     discordMessage.channelId,
     twitchChannel,
-    twitchUsername
+    twitchUsername,
+    twitchMessage,
+    formattedText
   );
 
   // Schedule removal after TTL

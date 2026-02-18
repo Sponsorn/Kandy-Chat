@@ -6,6 +6,7 @@ import {
   recordRelayMapping,
   relaySystemMessage
 } from "../services/relayService.js";
+import { buildDeletedV2Message } from "../services/messageBuilder.js";
 
 const GIFT_SUB_BATCH_MS = 1500;
 
@@ -270,12 +271,19 @@ function handleTwitchMessage(channel, tags, message, self, env, discordChannelId
   }
 
   relayToDiscord(username, normalized, channel, discordChannelId)
-    .then((sent) => {
+    .then(({ sent, formattedText }) => {
       const msgId = tags?.id;
       if (!msgId || !sent) return;
       // Mark message as relayed in buffer
       botState.markMessageRelayed(messageId);
-      recordRelayMapping(msgId, sent, channel, tags?.username ?? username);
+      recordRelayMapping(
+        msgId,
+        sent,
+        channel,
+        tags?.username ?? username,
+        normalized,
+        formattedText
+      );
     })
     .catch((error) => {
       console.error("Failed to relay message", error);
@@ -308,9 +316,16 @@ async function handleTwitchMessageDeleted(channel, username, deletedMessage, use
   try {
     const message = await discordChannel.messages.fetch(record.discordMessageId);
     if (!message) return;
-    if (message.content.includes("(deleted")) return;
-    await message.edit(`~~${message.content}~~ (deleted)`);
-    await message.reactions.removeAll();
+
+    if (botState.config.moderationUseButtons && record.formattedText) {
+      // V2: rebuild with strikethrough
+      await message.edit(buildDeletedV2Message(record.formattedText));
+    } else {
+      // Legacy
+      if (message.content.includes("(deleted")) return;
+      await message.edit(`~~${message.content}~~ (deleted)`);
+      await message.reactions.removeAll();
+    }
     console.log(`[${channel}] Updated Discord message as deleted`);
   } catch (error) {
     console.warn("Failed to update deleted message", error);
