@@ -422,6 +422,7 @@ async function start() {
     logger: console,
     waitForOnline: webServer ? freezeWaitForOnline : undefined,
     onFreeze: async () => {
+      console.warn(`${freezeChannelName || "Stream"} appears frozen (freeze monitor)`);
       botState.setStreamStatus(freezeChannelName, "frozen");
       const mention = FREEZE_ALERT_ROLE_ID ? `<@&${FREEZE_ALERT_ROLE_ID}> ` : "";
       const channel = process.env.FREEZE_CHANNEL || "Stream";
@@ -441,6 +442,7 @@ async function start() {
       }
     },
     onRecover: async () => {
+      console.log(`${freezeChannelName || "Stream"} recovered from freeze (freeze monitor)`);
       botState.setStreamStatus(freezeChannelName, "online");
       const channel = process.env.FREEZE_CHANNEL || "Stream";
 
