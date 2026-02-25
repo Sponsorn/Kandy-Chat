@@ -52,8 +52,12 @@ class YouTubeToTwitchBot:
         self.running = False
 
         from emoji_converter import EmojiConverter
+        # ../data for local dev, ./data for Docker (/app/data)
+        data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+        if not os.path.isdir(data_dir):
+            data_dir = os.path.join(os.path.dirname(__file__), "data")
         self.emoji_converter = EmojiConverter(
-            os.path.join(os.path.dirname(__file__), "..", "data"),
+            data_dir,
             reload_interval=300,
         )
         self.emoji_converter.reload()

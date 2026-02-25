@@ -16,6 +16,15 @@ def _log(msg):
     print(f"[{ts}] {msg}", flush=True)
 
 
+def _data_path(filename):
+    """Resolve a file path in the data directory (works locally and in Docker)."""
+    # ../data for local dev (youtube-relay/../data/), ./data for Docker (/app/data/)
+    path = os.path.join(os.path.dirname(__file__), "..", "data", filename)
+    if os.path.exists(path):
+        return path
+    return os.path.join(os.path.dirname(__file__), "data", filename)
+
+
 class TwitchBot:
     """Sends messages to Twitch chat via Helix API.
 
@@ -228,7 +237,7 @@ class TwitchBot:
         Entries starting with '/' are parsed as regex (/pattern/flags),
         everything else is plain text (case-insensitive substring match).
         """
-        blacklist_path = os.path.join(os.path.dirname(__file__), "..", "data", "blacklist.json")
+        blacklist_path = _data_path("blacklist.json")
 
         try:
             self._blacklist_mtime = os.path.getmtime(blacklist_path)
@@ -304,7 +313,7 @@ class TwitchBot:
             return
 
         self._last_blacklist_check = time.time()
-        blacklist_path = os.path.join(os.path.dirname(__file__), "..", "data", "blacklist.json")
+        blacklist_path = _data_path("blacklist.json")
 
         try:
             mtime = os.path.getmtime(blacklist_path)
