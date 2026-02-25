@@ -30,6 +30,10 @@ class TwitchBot:
 
     Unlike a full chat bot, this only sends messages — it does not
     read Twitch chat or use WebSocket EventSub.
+
+    Token management: reads access token from shared data/tokens.json
+    (written by the main kandy-chat bot). Falls back to own refresh
+    only when tokens.json is unavailable.
     """
 
     def __init__(self, bot_user_id, oauth_token, client_id, channel_user_id,
@@ -48,6 +52,36 @@ class TwitchBot:
         self._last_blacklist_check = 0
         self._blacklist_check_interval = 0
         self._blacklist_mtime = 0
+
+    # ── Shared token file ──────────────────────────────────────────
+
+    def _load_shared_tokens(self):
+        """Load tokens from shared data/tokens.json (written by main bot)."""
+        tokens_path = _data_path("tokens.json")
+        try:
+            with open(tokens_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            access = data.get("accessToken")
+            refresh = data.get("refreshToken")
+            if access:
+                return access, refresh
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            pass
+        return None, None
+
+    def _persist_shared_tokens(self, access_token, refresh_token):
+        """Write tokens to shared data/tokens.json for other services."""
+        tokens_path = _data_path("tokens.json")
+        try:
+            data = {
+                "accessToken": access_token,
+                "refreshToken": refresh_token,
+                "updatedAt": datetime.now(timezone.utc).isoformat(),
+            }
+            with open(tokens_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except OSError as e:
+            _log(f"Could not persist tokens: {e}")
 
     # ── Token management ──────────────────────────────────────────
 
@@ -73,12 +107,26 @@ class TwitchBot:
                 return None
 
             data = response.json()
+            new_access = data["access_token"]
+            new_refresh = data["refresh_token"]
             _log("Successfully refreshed OAuth token")
-            return (data["access_token"], data["refresh_token"])
+            self._persist_shared_tokens(new_access, new_refresh)
+            return (new_access, new_refresh)
 
         except requests.exceptions.RequestException as e:
             _log(f"Token refresh error: {e}")
             return None
+
+    def _reload_token_from_shared(self):
+        """Try to reload a fresh token from tokens.json. Returns True if updated."""
+        access, refresh = self._load_shared_tokens()
+        if access and access != self.oauth_token:
+            _log("Loaded updated token from shared tokens.json")
+            self.oauth_token = access
+            if refresh:
+                self.bot_refresh_token = refresh
+            return True
+        return False
 
     def validate_token(self):
         """Validate bot token, refresh if expired. Returns True if valid."""
@@ -89,12 +137,17 @@ class TwitchBot:
                 timeout=5,
             )
 
-            if response.status_code == 401 and self.bot_refresh_token:
-                _log("Bot token expired, attempting refresh...")
-                result = self.refresh_access_token(self.bot_refresh_token)
-                if result:
-                    self.oauth_token, self.bot_refresh_token = result
-                    return True
+            if response.status_code == 401:
+                # Try shared tokens.json first (main bot may have refreshed)
+                if self._reload_token_from_shared():
+                    return self.validate_token()
+                # Fall back to own refresh
+                if self.bot_refresh_token:
+                    _log("Bot token expired, attempting refresh...")
+                    result = self.refresh_access_token(self.bot_refresh_token)
+                    if result:
+                        self.oauth_token, self.bot_refresh_token = result
+                        return True
                 _log("Failed to refresh bot token")
                 return False
 
@@ -111,33 +164,20 @@ class TwitchBot:
     # ── Connect / disconnect ──────────────────────────────────────
 
     def connect(self):
-        """Validate tokens and fetch blocked terms."""
+        """Load shared tokens, validate, and fetch blocked terms."""
+        # Try to use token from shared tokens.json (written by main bot)
+        access, refresh = self._load_shared_tokens()
+        if access:
+            _log("Using access token from shared tokens.json")
+            self.oauth_token = access
+            if refresh:
+                self.bot_refresh_token = refresh
+
         if not self.validate_token():
             raise Exception("Bot OAuth token validation failed")
 
-        # Sync broadcaster token to bot token if not separately configured
-        if not self.broadcaster_oauth_token or self.broadcaster_oauth_token == self.oauth_token:
-            self.broadcaster_oauth_token = self.oauth_token
-        else:
-            # Validate separate broadcaster token
-            try:
-                response = requests.get(
-                    "https://id.twitch.tv/oauth2/validate",
-                    headers={"Authorization": f"OAuth {self.broadcaster_oauth_token}"},
-                    timeout=5,
-                )
-                if response.status_code == 401 and self.broadcaster_refresh_token:
-                    result = self.refresh_access_token(self.broadcaster_refresh_token)
-                    if result:
-                        self.broadcaster_oauth_token, self.broadcaster_refresh_token = result
-                    else:
-                        _log("Failed to refresh broadcaster token, using bot token")
-                        self.broadcaster_oauth_token = self.oauth_token
-                elif response.status_code != 200:
-                    _log("Broadcaster token invalid, using bot token")
-                    self.broadcaster_oauth_token = self.oauth_token
-            except requests.exceptions.RequestException:
-                self.broadcaster_oauth_token = self.oauth_token
+        # Sync broadcaster token to bot token
+        self.broadcaster_oauth_token = self.oauth_token
 
         # Fetch blocked terms
         self.fetch_blocked_terms()
@@ -174,30 +214,37 @@ class TwitchBot:
                 error = response.json()
                 _log(f"  {error}")
 
-                # Token might have expired mid-session
-                if response.status_code == 401 and self.bot_refresh_token:
-                    _log("Refreshing token and retrying...")
-                    result = self.refresh_access_token(self.bot_refresh_token)
-                    if result:
-                        self.oauth_token, self.bot_refresh_token = result
-                        # Retry once
-                        retry = requests.post(
-                            "https://api.twitch.tv/helix/chat/messages",
-                            headers={
-                                "Authorization": f"Bearer {self.oauth_token}",
-                                "Client-Id": self.client_id,
-                                "Content-Type": "application/json",
-                            },
-                            json={
-                                "broadcaster_id": self.channel_user_id,
-                                "sender_id": self.bot_user_id,
-                                "message": message,
-                            },
-                            timeout=5,
-                        )
-                        if retry.status_code == 200:
+                if response.status_code == 401:
+                    # Try reloading from shared tokens.json first
+                    if self._reload_token_from_shared():
+                        _log("Retrying with shared token...")
+                    elif self.bot_refresh_token:
+                        _log("Refreshing token and retrying...")
+                        result = self.refresh_access_token(self.bot_refresh_token)
+                        if not result:
                             return
-                        _log(f"Retry failed: {retry.status_code}")
+                        self.oauth_token, self.bot_refresh_token = result
+                    else:
+                        return
+
+                    # Retry once with updated token
+                    retry = requests.post(
+                        "https://api.twitch.tv/helix/chat/messages",
+                        headers={
+                            "Authorization": f"Bearer {self.oauth_token}",
+                            "Client-Id": self.client_id,
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "broadcaster_id": self.channel_user_id,
+                            "sender_id": self.bot_user_id,
+                            "message": message,
+                        },
+                        timeout=5,
+                    )
+                    if retry.status_code == 200:
+                        return
+                    _log(f"Retry failed: {retry.status_code}")
 
         except requests.exceptions.RequestException as e:
             _log(f"Error sending message: {e}")

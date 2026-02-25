@@ -10,8 +10,9 @@ const TOKENS_PATH = join(process.cwd(), "data", "tokens.json");
 /**
  * Persist refresh token to data/tokens.json
  */
-async function persistRefreshToken(refreshToken) {
+async function persistTokens(accessToken, refreshToken) {
   const data = {
+    accessToken,
     refreshToken,
     updatedAt: new Date().toISOString()
   };
@@ -61,11 +62,9 @@ export async function refreshAndApplyTwitchToken(credentials) {
     refreshToken: refreshed.refreshToken
   });
 
-  if (refreshed.refreshToken !== previousRefreshToken) {
-    persistRefreshToken(refreshed.refreshToken).catch((error) => {
-      console.warn("Failed to persist Twitch refresh token", error);
-    });
-  }
+  persistTokens(refreshed.accessToken, refreshed.refreshToken).catch((error) => {
+    console.warn("Failed to persist Twitch tokens", error);
+  });
 
   return {
     oauthToken,

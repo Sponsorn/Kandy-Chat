@@ -26,10 +26,13 @@ services:
       dockerfile: Dockerfile
     container_name: youtube-relay
     restart: unless-stopped
+    depends_on:
+      kandy-chat:
+        condition: service_started
     env_file:
       - ./youtube-relay/.env
     volumes:
-      - ./data:/app/data:ro
+      - ./data:/app/data
       - ./youtube-relay/.bot_message_counter:/app/.bot_message_counter
     logging:
       driver: "json-file"
