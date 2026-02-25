@@ -1,312 +1,116 @@
-# Raspberry Pi 5 Deployment Guide
+# Deployment Guide
 
-This guide will help you set up the Kandy Chat bot on a Raspberry Pi 5 using Docker with local deployment.
+Kandy Chat runs with Docker Compose. Two services: the main Node.js bot (`kandy-chat`) and an optional Python YouTube-to-Twitch relay (`youtube-relay`).
 
-## Prerequisites on Raspberry Pi 5
+## Initial Setup
 
-### 1. Install Docker
-
-Docker should already be installed on your Pi. Verify with:
-
-```bash
-docker --version
-docker compose version
-```
-
-### 2. Install Git
-
-```bash
-sudo apt install git -y
-```
-
-## Initial Setup on Raspberry Pi
-
-### 1. Clone Repository
+### 1. Clone and configure
 
 ```bash
 cd /mnt/nvme
 git clone https://github.com/Sponsorn/Kandy-Chat.git kandy-chat
 cd kandy-chat
-```
 
-### 2. Set Up Environment Variables
-
-```bash
-# Copy the example env file
+# Main bot config
 cp .env.example .env
-
-# Edit with your configuration
 nano .env
-```
 
-Fill in all required Discord and Twitch credentials:
+# YouTube relay config (optional)
+cp youtube-relay/.env.example youtube-relay/.env
+nano youtube-relay/.env
 
-- `DISCORD_TOKEN`: your bot token
-- `DISCORD_CHANNEL_ID`: target channel id
-- `DISCORD_CLIENT_ID`: application client id
-- `DISCORD_GUILD_ID`: guild id for slash commands
-- `ADMIN_ROLE_ID`: admin role(s) for commands
-- `MOD_ROLE_ID`: mod role(s) for commands
-- `TWITCH_USERNAME`: Twitch bot username
-- `TWITCH_OAUTH`: IRC oauth token
-- `TWITCH_CHANNEL`: channel to read
-
-### 3. Create Data Directory
-
-```bash
+# Ensure data directory exists
 mkdir -p data
 ```
 
-### 4. Deploy Slash Commands
-
-Before starting the bot for the first time, deploy the slash commands:
+### 2. Deploy slash commands
 
 ```bash
-# Install dependencies temporarily for deployment
 npm install
 npm run deploy-commands
-
-# Clean up (Docker will install its own copy)
-rm -rf node_modules
+rm -rf node_modules  # Docker installs its own
 ```
 
-## Deploying the Bot
-
-### Initial Deployment
+### 3. Start
 
 ```bash
-cd /mnt/nvme/kandy-chat
-
-# Build and start the container
 docker compose up -d --build
-
-# View logs
-docker compose logs -f
 ```
 
-### Updating the Bot
-
-When you push changes to GitHub, update your Pi with:
+To start without the youtube-relay:
 
 ```bash
-cd /mnt/nvme/kandy-chat
-
-# Pull latest code
-git pull
-
-# Rebuild and restart
-docker compose up -d --build
-
-# View logs
-docker compose logs -f
+docker compose up -d --build kandy-chat
 ```
 
-## Useful Commands
+## Updating
 
-### Container Management
+Use the `kandy-update` command (installed on the Pi):
 
 ```bash
-# View logs (follow mode)
-docker compose logs -f
+kandy-update
+```
 
-# View recent logs
-docker compose logs --tail=50
+This pulls the latest code, clears the stop flag, rebuilds both containers, and tails the logs.
 
-# Restart the bot
-docker compose restart
+## Services
 
-# Stop the bot
-docker compose down
+| Service | Container | Config | Volumes |
+|---------|-----------|--------|---------|
+| `kandy-chat` | `kandy-chat-bot` | `.env` | `./data:/app/data` |
+| `youtube-relay` | `youtube-relay` | `youtube-relay/.env` | `./data:/app/data:ro`, `./youtube-relay/.bot_message_counter:/app/.bot_message_counter` |
 
-# Start the bot
-docker compose up -d
+The youtube-relay mounts `data/` read-only to consume `emoji-mappings.json` (managed by the dashboard).
 
-# View container status
+## Common Commands
+
+```bash
+# Logs
+docker compose logs -f                    # all services
+docker compose logs -f kandy-chat         # main bot only
+docker compose logs -f youtube-relay      # relay only
+docker compose logs --tail=100 --since 1h # recent
+
+# Control
+docker compose restart                    # restart all
+docker compose restart kandy-chat         # restart one
+docker compose stop youtube-relay         # stop relay only
+docker compose down                       # stop all
+
+# Status
 docker compose ps
-
-# Execute commands inside container
-docker compose exec kandy-chat sh
+docker stats
 ```
-
-### Resource Monitoring
-
-```bash
-# View resource usage
-docker stats kandy-chat-bot
-
-# System resources
-htop
-
-# Disk usage
-df -h
-```
-
-### Clean Up
-
-```bash
-# Remove old images
-docker image prune -f
-
-# Remove all unused Docker resources
-docker system prune -a
-```
-
-## Port Forwarding for EventSub
-
-If you're using EventSub, you'll need to expose port 8080 (or your configured port) to the internet:
-
-1. Set up port forwarding on your router: `8080 → RPI_IP:8080`
-2. Consider using a reverse proxy like nginx for HTTPS
-3. Or use a service like ngrok for testing:
-   ```bash
-   ngrok http 8080
-   ```
 
 ## Troubleshooting
 
 ### Container won't start
 
 ```bash
-# View detailed logs
-docker compose logs
-
-# Check environment variables
-cat .env
-
-# Rebuild from scratch
+docker compose logs                       # check error
 docker compose down
-docker compose build --no-cache
+docker compose build --no-cache           # full rebuild
 docker compose up -d
+```
+
+### SD card full
+
+```bash
+df -h
+sudo docker builder prune -f
+sudo apt clean
 ```
 
 ### Permission issues
 
 ```bash
-# Ensure you own the directory
 sudo chown -R sponsorn:sponsorn /mnt/nvme/kandy-chat
 ```
 
-### Check Docker is running
+## Dashboard
 
-```bash
-sudo systemctl status docker
-```
+The web dashboard runs on port 8080 (same as EventSub). Access via `https://{DASHBOARD_DOMAIN}`. Requires `DASHBOARD_ENABLED=true` in `.env`.
 
-### Out of disk space
+## Auto-Start
 
-```bash
-# Check disk usage
-df -h
-
-# Clean up Docker
-docker system prune -a
-```
-
-## Security Recommendations
-
-1. **Firewall**: Use UFW to restrict access
-
-   ```bash
-   sudo apt install ufw
-   sudo ufw allow ssh
-   sudo ufw allow 8080/tcp  # Only if using EventSub
-   sudo ufw enable
-   ```
-
-2. **Keep system updated**:
-
-   ```bash
-   sudo apt update && sudo apt upgrade -y
-   ```
-
-3. **Never commit `.env` to Git** - it's already in `.gitignore`
-
-4. **SSH security**:
-   - Change default SSH port
-   - Use SSH key authentication only
-   - Disable password authentication
-
-## Auto-Start on Boot
-
-The `restart: unless-stopped` policy in [docker-compose.yml](docker-compose.yml) ensures the bot automatically starts when your Pi boots.
-
-To manually control this:
-
-```bash
-# Disable auto-restart
-docker compose down
-
-# Enable auto-restart
-docker compose up -d
-```
-
-## Monitoring
-
-### View System Resources
-
-```bash
-# CPU and memory
-htop
-
-# Docker resource usage
-docker stats kandy-chat-bot
-
-# Disk usage
-df -h /mnt/nvme
-```
-
-### View Bot Logs
-
-```bash
-# Live logs
-docker compose logs -f
-
-# Last 100 lines
-docker compose logs --tail=100
-
-# Logs from last hour
-docker compose logs --since 1h
-```
-
-## Quick Reference
-
-```bash
-# Update and restart bot
-cd /mnt/nvme/kandy-chat && git pull && docker compose up -d --build
-
-# View logs
-docker compose logs -f
-
-# Restart bot
-docker compose restart
-
-# Stop bot
-docker compose down
-
-# Clean up old images
-docker image prune -f
-```
-
-## Simple Update Script
-
-You can create a simple script to update the bot. Create `/mnt/nvme/kandy-chat/update.sh`:
-
-```bash
-#!/bin/bash
-cd /mnt/nvme/kandy-chat
-git pull
-docker compose up -d --build
-docker compose logs --tail=50
-```
-
-Make it executable:
-
-```bash
-chmod +x /mnt/nvme/kandy-chat/update.sh
-```
-
-Then update with:
-
-```bash
-/mnt/nvme/kandy-chat/update.sh
-```
+The `restart: unless-stopped` / `restart: on-failure` policies in docker-compose.yml ensure containers start on boot as long as Docker is running.
