@@ -167,6 +167,21 @@ export const modlog = {
   }
 };
 
+// Emoji Mappings API
+export const emojiMappings = {
+  async get() {
+    return request("GET", "/api/emoji-mappings");
+  },
+
+  async add(emoji, replacement) {
+    return request("POST", "/api/emoji-mappings", { emoji, replacement });
+  },
+
+  async remove(emoji) {
+    return request("DELETE", "/api/emoji-mappings", { emoji });
+  }
+};
+
 // Chat API
 export const chat = {
   async getHistory(channel, limit = 500) {

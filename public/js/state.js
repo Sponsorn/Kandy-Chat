@@ -111,6 +111,9 @@ export function setBotLogs(logs) {
 export const blacklistWords = signal([]);
 export const blacklistRegex = signal([]);
 
+// Emoji mappings
+export const emojiMappingsData = signal({});
+
 // Current route
 export const currentRoute = signal(window.location.pathname);
 
@@ -228,6 +231,9 @@ export function updateFromWs(data) {
   } else if (data.type === "raid:incoming") {
     recentRaids.value = [data.data, ...recentRaids.value].slice(0, 10);
     window.dispatchEvent(new CustomEvent("app:raid-incoming", { detail: data.data }));
+  } else if (data.type === "emoji-mappings:updated") {
+    emojiMappingsData.value = data.data || {};
+    window.dispatchEvent(new Event("app:emoji-mappings-update"));
   }
 }
 
@@ -253,5 +259,20 @@ async function fetchBlacklist() {
   }
 }
 
+// Fetch emoji mappings from API
+async function fetchEmojiMappings() {
+  try {
+    const response = await fetch("/api/emoji-mappings");
+    if (response.ok) {
+      const data = await response.json();
+      emojiMappingsData.value = data.mappings || {};
+      window.dispatchEvent(new Event("app:emoji-mappings-update"));
+    }
+  } catch (error) {
+    console.error("Failed to fetch emoji mappings:", error);
+  }
+}
+
 // Export for external use
 export { fetchBlacklist };
+export { fetchEmojiMappings };
