@@ -1,5 +1,8 @@
 """Twitch API client for the YouTube relay (send-only, no chat reading)."""
 
+import json
+import os
+import re
 import time
 import requests
 from typing import Optional, List
@@ -24,8 +27,10 @@ class TwitchBot:
         self.broadcaster_refresh_token = broadcaster_refresh_token
         self.channel_user_id = channel_user_id
         self.blocked_terms = []
-        self._last_blocked_terms_refresh = 0
-        self._blocked_terms_refresh_interval = 0
+        self._blocked_regexes = []
+        self._last_blacklist_check = 0
+        self._blacklist_check_interval = 0
+        self._blacklist_mtime = 0
 
     # ── Token management ──────────────────────────────────────────
 
@@ -119,7 +124,7 @@ class TwitchBot:
 
         # Fetch blocked terms
         self.fetch_blocked_terms()
-        self._last_blocked_terms_refresh = time.time()
+        self._last_blacklist_check = time.time()
 
         print("Twitch API client ready", flush=True)
 
@@ -210,76 +215,97 @@ class TwitchBot:
     # ── Blocked terms ─────────────────────────────────────────────
 
     def fetch_blocked_terms(self):
-        """Fetch blocked terms from Twitch channel."""
-        all_terms = []
-        cursor = None
+        """Load blocked terms from local data/blacklist.json file.
+
+        Entries starting with '/' are parsed as regex (/pattern/flags),
+        everything else is plain text (case-insensitive substring match).
+        """
+        blacklist_path = os.path.join(os.path.dirname(__file__), "..", "data", "blacklist.json")
 
         try:
-            while True:
-                url = (
-                    f"https://api.twitch.tv/helix/moderation/blocked_terms"
-                    f"?broadcaster_id={self.channel_user_id}"
-                    f"&moderator_id={self.bot_user_id}&first=100"
-                )
-                if cursor:
-                    url += f"&after={cursor}"
+            self._blacklist_mtime = os.path.getmtime(blacklist_path)
+        except OSError:
+            pass
 
-                response = requests.get(
-                    url,
-                    headers={
-                        "Authorization": f"Bearer {self.broadcaster_oauth_token}",
-                        "Client-Id": self.client_id,
-                    },
-                    timeout=5,
-                )
+        try:
+            with open(blacklist_path, "r", encoding="utf-8") as f:
+                entries = json.load(f)
+        except FileNotFoundError:
+            print("No blacklist.json found, no terms loaded", flush=True)
+            self.blocked_terms = []
+            self._blocked_regexes = []
+            return
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"Error reading blacklist.json: {e}", flush=True)
+            return
 
-                if response.status_code == 200:
-                    data = response.json()
-                    terms = [item["text"].lower() for item in data.get("data", [])]
-                    all_terms.extend(terms)
-                    cursor = data.get("pagination", {}).get("cursor")
-                    if not cursor:
-                        break
-                elif response.status_code in (401, 403):
-                    print(
-                        f"Cannot fetch blocked terms ({response.status_code}). "
-                        "Messages will not be filtered against Twitch blocked terms.",
-                        flush=True,
-                    )
-                    return []
-                else:
-                    print(f"Failed to fetch blocked terms: {response.status_code}", flush=True)
-                    return []
+        if not isinstance(entries, list):
+            return
 
-            self.blocked_terms = all_terms
-            print(f"Loaded {len(all_terms)} blocked term(s) from Twitch", flush=True)
-            return all_terms
+        terms = []
+        regexes = []
+        for entry in entries:
+            if not isinstance(entry, str) or not entry.strip():
+                continue
+            entry = entry.strip()
+            if entry.startswith("/"):
+                # Parse /pattern/flags regex
+                last_slash = entry.rfind("/", 1)
+                if last_slash <= 0:
+                    continue
+                pattern = entry[1:last_slash]
+                flags_str = entry[last_slash + 1:]
+                flags = 0
+                if "i" in flags_str:
+                    flags |= re.IGNORECASE
+                try:
+                    regexes.append(re.compile(pattern, flags))
+                except re.error as e:
+                    print(f"Invalid blacklist regex \"{entry}\": {e}", flush=True)
+            else:
+                terms.append(entry.lower())
 
-        except requests.exceptions.RequestException as e:
-            print(f"Error fetching blocked terms: {e}", flush=True)
-            return []
+        self.blocked_terms = terms
+        self._blocked_regexes = regexes
+        total = len(terms) + len(regexes)
+        print(f"Loaded {total} blacklist entries ({len(terms)} text, {len(regexes)} regex)", flush=True)
 
     def is_message_blocked(self, message):
         """Check if a message contains blocked terms. Returns (is_blocked, matched_term)."""
-        if not self.blocked_terms:
+        if not self.blocked_terms and not getattr(self, "_blocked_regexes", []):
             return False, None
 
         message_lower = message.lower()
         for term in self.blocked_terms:
             if term in message_lower:
                 return True, term
+
+        for regex in getattr(self, "_blocked_regexes", []):
+            if regex.search(message):
+                return True, regex.pattern
+
         return False, None
 
     def refresh_blocked_terms_if_needed(self):
-        """Re-fetch blocked terms if the refresh interval has elapsed."""
-        if self._blocked_terms_refresh_interval <= 0:
+        """Re-load blacklist from file only if the file has been modified."""
+        if self._blacklist_check_interval <= 0:
             return
 
-        elapsed = time.time() - self._last_blocked_terms_refresh
-        if elapsed >= self._blocked_terms_refresh_interval:
-            old_count = len(self.blocked_terms)
+        elapsed = time.time() - self._last_blacklist_check
+        if elapsed < self._blacklist_check_interval:
+            return
+
+        self._last_blacklist_check = time.time()
+        blacklist_path = os.path.join(os.path.dirname(__file__), "..", "data", "blacklist.json")
+
+        try:
+            mtime = os.path.getmtime(blacklist_path)
+        except OSError:
+            return
+
+        if mtime != self._blacklist_mtime:
+            old_count = len(self.blocked_terms) + len(self._blocked_regexes)
             self.fetch_blocked_terms()
-            self._last_blocked_terms_refresh = time.time()
-            new_count = len(self.blocked_terms)
+            new_count = len(self.blocked_terms) + len(self._blocked_regexes)
             if new_count != old_count:
-                print(f"Blocked terms updated: {old_count} -> {new_count}", flush=True)
+                print(f"Blacklist updated: {old_count} -> {new_count} entries", flush=True)

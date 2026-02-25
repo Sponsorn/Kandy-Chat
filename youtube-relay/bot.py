@@ -183,7 +183,7 @@ class YouTubeToTwitchBot:
 
         # Set blocked terms refresh interval
         refresh_seconds = self.blocked_terms_refresh_minutes * 60
-        self.twitch._blocked_terms_refresh_interval = refresh_seconds
+        self.twitch._blacklist_check_interval = refresh_seconds
 
         # Start YouTube chat reader
         log(f"Starting YouTube chat reader: {self.youtube.channel_url}")
