@@ -19,3 +19,19 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  youtube-relay:
+    build:
+      context: ./youtube-relay
+      dockerfile: Dockerfile
+    container_name: youtube-relay
+    restart: unless-stopped
+    env_file:
+      - ./youtube-relay/.env
+    volumes:
+      - ./youtube-relay/.bot_message_counter:/app/.bot_message_counter
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
