@@ -2,6 +2,7 @@ import { Router } from "express";
 import botState from "../../state/BotState.js";
 import { requireAuth, Permissions } from "../../auth/sessionManager.js";
 import { loadBlacklist, addBlacklistWord, removeBlacklistWord } from "../../blacklistStore.js";
+import { loadEmojiMappings, addEmojiMapping, removeEmojiMapping } from "../../emojiMappingStore.js";
 import { loadConfig, updateConfigSection } from "../../configStore.js";
 
 /**
@@ -434,6 +435,87 @@ export function createConfigRoutes(options = {}) {
     } catch (error) {
       console.error("Failed to update subscription messages:", error);
       res.status(500).json({ error: "Failed to update subscription message templates" });
+    }
+  });
+
+  /**
+   * GET /api/emoji-mappings - Get all emoji mappings (requires moderator)
+   */
+  router.get("/api/emoji-mappings", requireAuth(Permissions.MODERATOR), async (req, res) => {
+    try {
+      const mappings = await loadEmojiMappings();
+      res.json({ mappings });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to load emoji mappings" });
+    }
+  });
+
+  /**
+   * POST /api/emoji-mappings - Add/update emoji mapping (requires moderator)
+   */
+  router.post("/api/emoji-mappings", requireAuth(Permissions.MODERATOR), async (req, res) => {
+    const { emoji, replacement } = req.body;
+
+    if (!emoji || typeof emoji !== "string") {
+      return res.status(400).json({ error: "Missing or invalid 'emoji' field" });
+    }
+
+    if (replacement === undefined || typeof replacement !== "string") {
+      return res.status(400).json({ error: "Missing or invalid 'replacement' field" });
+    }
+
+    try {
+      const result = await addEmojiMapping(emoji.trim(), replacement);
+
+      if (result.added) {
+        const actor = req.session?.user?.username || "unknown";
+        botState.recordAuditEvent(
+          "emoji_mapping_add",
+          actor,
+          { emoji: emoji.trim(), replacement },
+          "dashboard"
+        );
+        botState.emit("emoji-mappings:updated", result.mappings);
+
+        res.json({
+          success: true,
+          message: `Mapped "${emoji.trim()}" to "${replacement || "(strip)"}"`
+        });
+      }
+    } catch (error) {
+      res.status(500).json({ error: "Failed to add emoji mapping" });
+    }
+  });
+
+  /**
+   * DELETE /api/emoji-mappings - Remove emoji mapping (requires moderator)
+   */
+  router.delete("/api/emoji-mappings", requireAuth(Permissions.MODERATOR), async (req, res) => {
+    const { emoji } = req.body;
+
+    if (!emoji || typeof emoji !== "string") {
+      return res.status(400).json({ error: "Missing or invalid 'emoji' field" });
+    }
+
+    try {
+      const result = await removeEmojiMapping(emoji.trim());
+
+      if (result.removed) {
+        const actor = req.session?.user?.username || "unknown";
+        botState.recordAuditEvent(
+          "emoji_mapping_remove",
+          actor,
+          { emoji: emoji.trim() },
+          "dashboard"
+        );
+        botState.emit("emoji-mappings:updated", result.mappings);
+
+        res.json({ success: true, message: `Removed mapping for "${emoji.trim()}"` });
+      } else {
+        res.json({ success: false, message: `"${emoji.trim()}" not found in mappings` });
+      }
+    } catch (error) {
+      res.status(500).json({ error: "Failed to remove emoji mapping" });
     }
   });
 
