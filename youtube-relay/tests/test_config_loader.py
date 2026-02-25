@@ -3,35 +3,31 @@ import pytest
 from unittest.mock import patch
 
 
+# Minimal env with refresh-based auth (no TWITCH_OAUTH_TOKEN)
+BASE_ENV = {
+    "YOUTUBE_CHANNEL_URL": "https://www.youtube.com/@TestChannel",
+    "TWITCH_BOT_USER_ID": "123456",
+    "TWITCH_CLIENT_ID": "test_client_id",
+    "TWITCH_CLIENT_SECRET": "test_secret",
+    "TWITCH_BOT_REFRESH_TOKEN": "test_refresh",
+    "TWITCH_CHANNEL_USER_ID": "789012",
+}
+
+
 def test_load_config_returns_all_required_keys():
     """Config loader returns dict with all expected keys."""
-    env_vars = {
-        "YOUTUBE_CHANNEL_URL": "https://www.youtube.com/@TestChannel",
-        "TWITCH_BOT_USER_ID": "123456",
-        "TWITCH_OAUTH_TOKEN": "test_token",
-        "TWITCH_CLIENT_ID": "test_client_id",
-        "TWITCH_CHANNEL_USER_ID": "789012",
-    }
-    with patch.dict(os.environ, env_vars, clear=False):
+    with patch.dict(os.environ, BASE_ENV, clear=False):
         from config_loader import load_config
         config = load_config()
         assert config["youtube_channel_url"] == "https://www.youtube.com/@TestChannel"
         assert config["twitch_bot_user_id"] == "123456"
-        assert config["twitch_oauth_token"] == "test_token"
         assert config["twitch_client_id"] == "test_client_id"
         assert config["twitch_channel_user_id"] == "789012"
 
 
 def test_load_config_defaults():
     """Config loader provides sensible defaults for optional fields."""
-    env_vars = {
-        "YOUTUBE_CHANNEL_URL": "https://www.youtube.com/@TestChannel",
-        "TWITCH_BOT_USER_ID": "123456",
-        "TWITCH_OAUTH_TOKEN": "test_token",
-        "TWITCH_CLIENT_ID": "test_client_id",
-        "TWITCH_CHANNEL_USER_ID": "789012",
-    }
-    with patch.dict(os.environ, env_vars, clear=False):
+    with patch.dict(os.environ, BASE_ENV, clear=False):
         from config_loader import load_config
         config = load_config()
         assert config["message_format"] == "[YT] {author}: {message}"
@@ -52,18 +48,43 @@ def test_load_config_missing_required_raises():
             load_config()
 
 
-def test_load_config_bool_parsing():
-    """Config loader parses boolean strings correctly."""
-    env_vars = {
+def test_load_config_missing_auth_raises():
+    """Config loader raises when neither oauth token nor refresh credentials provided."""
+    env = {
+        "YOUTUBE_CHANNEL_URL": "https://www.youtube.com/@TestChannel",
+        "TWITCH_BOT_USER_ID": "123456",
+        "TWITCH_CLIENT_ID": "test_client_id",
+        "TWITCH_CHANNEL_USER_ID": "789012",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        from config_loader import load_config
+        with pytest.raises(ValueError, match="TWITCH_OAUTH_TOKEN"):
+            load_config()
+
+
+def test_load_config_oauth_token_only():
+    """Config loader accepts just TWITCH_OAUTH_TOKEN without refresh credentials."""
+    env = {
         "YOUTUBE_CHANNEL_URL": "https://www.youtube.com/@TestChannel",
         "TWITCH_BOT_USER_ID": "123456",
         "TWITCH_OAUTH_TOKEN": "test_token",
         "TWITCH_CLIENT_ID": "test_client_id",
         "TWITCH_CHANNEL_USER_ID": "789012",
+    }
+    with patch.dict(os.environ, env, clear=False):
+        from config_loader import load_config
+        config = load_config()
+        assert config["twitch_oauth_token"] == "test_token"
+
+
+def test_load_config_bool_parsing():
+    """Config loader parses boolean strings correctly."""
+    env = {
+        **BASE_ENV,
         "DEBUG_MODE": "true",
         "WAIT_FOR_TWITCH_LIVE": "false",
     }
-    with patch.dict(os.environ, env_vars, clear=False):
+    with patch.dict(os.environ, env, clear=False):
         from config_loader import load_config
         config = load_config()
         assert config["debug_mode"] is True

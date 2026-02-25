@@ -24,7 +24,6 @@ def load_config():
     required = [
         "YOUTUBE_CHANNEL_URL",
         "TWITCH_BOT_USER_ID",
-        "TWITCH_OAUTH_TOKEN",
         "TWITCH_CLIENT_ID",
         "TWITCH_CHANNEL_USER_ID",
     ]
@@ -36,10 +35,21 @@ def load_config():
             "Copy .env.example to .env and fill in your values."
         )
 
+    # Need either an OAuth token or client_secret + refresh_token for auto-refresh
+    has_oauth = bool(os.environ.get("TWITCH_OAUTH_TOKEN"))
+    has_refresh = bool(os.environ.get("TWITCH_CLIENT_SECRET")) and bool(
+        os.environ.get("TWITCH_BOT_REFRESH_TOKEN")
+    )
+    if not has_oauth and not has_refresh:
+        raise ValueError(
+            "Must provide either TWITCH_OAUTH_TOKEN or both "
+            "TWITCH_CLIENT_SECRET and TWITCH_BOT_REFRESH_TOKEN"
+        )
+
     return {
         "youtube_channel_url": os.environ["YOUTUBE_CHANNEL_URL"],
         "twitch_bot_user_id": os.environ["TWITCH_BOT_USER_ID"],
-        "twitch_oauth_token": os.environ["TWITCH_OAUTH_TOKEN"],
+        "twitch_oauth_token": os.environ.get("TWITCH_OAUTH_TOKEN", ""),
         "twitch_client_id": os.environ["TWITCH_CLIENT_ID"],
         "twitch_client_secret": os.environ.get("TWITCH_CLIENT_SECRET", ""),
         "twitch_channel_user_id": os.environ["TWITCH_CHANNEL_USER_ID"],
