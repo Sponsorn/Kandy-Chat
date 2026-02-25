@@ -5,7 +5,15 @@ import os
 import re
 import time
 import requests
+from datetime import datetime, timezone
 from typing import Optional, List
+
+
+def _log(msg):
+    """Print with timestamp and immediate flush."""
+    now = datetime.now(timezone.utc)
+    ts = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+    print(f"[{ts}] {msg}", flush=True)
 
 
 class TwitchBot:
@@ -52,15 +60,15 @@ class TwitchBot:
             )
 
             if response.status_code != 200:
-                print(f"Token refresh failed: {response.status_code}", flush=True)
+                _log(f"Token refresh failed: {response.status_code}")
                 return None
 
             data = response.json()
-            print("Successfully refreshed OAuth token", flush=True)
+            _log("Successfully refreshed OAuth token")
             return (data["access_token"], data["refresh_token"])
 
         except requests.exceptions.RequestException as e:
-            print(f"Token refresh error: {e}", flush=True)
+            _log(f"Token refresh error: {e}")
             return None
 
     def validate_token(self):
@@ -73,22 +81,22 @@ class TwitchBot:
             )
 
             if response.status_code == 401 and self.bot_refresh_token:
-                print("Bot token expired, attempting refresh...", flush=True)
+                _log("Bot token expired, attempting refresh...")
                 result = self.refresh_access_token(self.bot_refresh_token)
                 if result:
                     self.oauth_token, self.bot_refresh_token = result
                     return True
-                print("Failed to refresh bot token", flush=True)
+                _log("Failed to refresh bot token")
                 return False
 
             if response.status_code != 200:
-                print(f"Token validation failed: {response.status_code}", flush=True)
+                _log(f"Token validation failed: {response.status_code}")
                 return False
 
             return True
 
         except requests.exceptions.RequestException as e:
-            print(f"Token validation error: {e}", flush=True)
+            _log(f"Token validation error: {e}")
             return False
 
     # ── Connect / disconnect ──────────────────────────────────────
@@ -114,10 +122,10 @@ class TwitchBot:
                     if result:
                         self.broadcaster_oauth_token, self.broadcaster_refresh_token = result
                     else:
-                        print("Failed to refresh broadcaster token, using bot token", flush=True)
+                        _log("Failed to refresh broadcaster token, using bot token")
                         self.broadcaster_oauth_token = self.oauth_token
                 elif response.status_code != 200:
-                    print("Broadcaster token invalid, using bot token", flush=True)
+                    _log("Broadcaster token invalid, using bot token")
                     self.broadcaster_oauth_token = self.oauth_token
             except requests.exceptions.RequestException:
                 self.broadcaster_oauth_token = self.oauth_token
@@ -126,7 +134,7 @@ class TwitchBot:
         self.fetch_blocked_terms()
         self._last_blacklist_check = time.time()
 
-        print("Twitch API client ready", flush=True)
+        _log("Twitch API client ready")
 
     def disconnect(self):
         """No-op (no persistent connection to close)."""
@@ -153,13 +161,13 @@ class TwitchBot:
             )
 
             if response.status_code != 200:
-                print(f"Failed to send message: {response.status_code}", flush=True)
+                _log(f"Failed to send message: {response.status_code}")
                 error = response.json()
-                print(f"  {error}", flush=True)
+                _log(f"  {error}")
 
                 # Token might have expired mid-session
                 if response.status_code == 401 and self.bot_refresh_token:
-                    print("Refreshing token and retrying...", flush=True)
+                    _log("Refreshing token and retrying...")
                     result = self.refresh_access_token(self.bot_refresh_token)
                     if result:
                         self.oauth_token, self.bot_refresh_token = result
@@ -180,10 +188,10 @@ class TwitchBot:
                         )
                         if retry.status_code == 200:
                             return
-                        print(f"Retry failed: {retry.status_code}", flush=True)
+                        _log(f"Retry failed: {retry.status_code}")
 
         except requests.exceptions.RequestException as e:
-            print(f"Error sending message: {e}", flush=True)
+            _log(f"Error sending message: {e}")
 
     # ── Channel status ────────────────────────────────────────────
 
@@ -208,8 +216,8 @@ class TwitchBot:
             return False
 
         except requests.exceptions.RequestException as e:
-            print(f"Could not check Twitch live status: {e}", flush=True)
-            print("  Assuming channel is live and continuing...", flush=True)
+            _log(f"Could not check Twitch live status: {e}")
+            _log("  Assuming channel is live and continuing...")
             return True
 
     # ── Blocked terms ─────────────────────────────────────────────
@@ -231,12 +239,12 @@ class TwitchBot:
             with open(blacklist_path, "r", encoding="utf-8") as f:
                 entries = json.load(f)
         except FileNotFoundError:
-            print("No blacklist.json found, no terms loaded", flush=True)
+            _log("No blacklist.json found, no terms loaded")
             self.blocked_terms = []
             self._blocked_regexes = []
             return
         except (json.JSONDecodeError, OSError) as e:
-            print(f"Error reading blacklist.json: {e}", flush=True)
+            _log(f"Error reading blacklist.json: {e}")
             return
 
         if not isinstance(entries, list):
@@ -261,18 +269,18 @@ class TwitchBot:
                 try:
                     regexes.append(re.compile(pattern, flags))
                 except re.error as e:
-                    print(f"Invalid blacklist regex \"{entry}\": {e}", flush=True)
+                    _log(f"Invalid blacklist regex \"{entry}\": {e}")
             else:
                 terms.append(entry.lower())
 
         self.blocked_terms = terms
         self._blocked_regexes = regexes
         total = len(terms) + len(regexes)
-        print(f"Loaded {total} blacklist entries ({len(terms)} text, {len(regexes)} regex)", flush=True)
+        _log(f"Loaded {total} blacklist entries ({len(terms)} text, {len(regexes)} regex)")
 
     def is_message_blocked(self, message):
         """Check if a message contains blocked terms. Returns (is_blocked, matched_term)."""
-        if not self.blocked_terms and not getattr(self, "_blocked_regexes", []):
+        if not self.blocked_terms and not self._blocked_regexes:
             return False, None
 
         message_lower = message.lower()
@@ -280,7 +288,7 @@ class TwitchBot:
             if term in message_lower:
                 return True, term
 
-        for regex in getattr(self, "_blocked_regexes", []):
+        for regex in self._blocked_regexes:
             if regex.search(message):
                 return True, regex.pattern
 
@@ -308,4 +316,4 @@ class TwitchBot:
             self.fetch_blocked_terms()
             new_count = len(self.blocked_terms) + len(self._blocked_regexes)
             if new_count != old_count:
-                print(f"Blacklist updated: {old_count} -> {new_count} entries", flush=True)
+                _log(f"Blacklist updated: {old_count} -> {new_count} entries")

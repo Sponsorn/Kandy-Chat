@@ -5,11 +5,14 @@ import time
 import socket
 import requests
 from collections import defaultdict
+from datetime import datetime, timezone
 
 
 def log(msg=""):
-    """Print with immediate flush for Docker log visibility."""
-    print(msg, flush=True)
+    """Print with timestamp and immediate flush for Docker log visibility."""
+    now = datetime.now(timezone.utc)
+    ts = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+    print(f"[{ts}] {msg}", flush=True)
 
 
 # Spam protection defaults
