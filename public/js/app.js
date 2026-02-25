@@ -12,6 +12,7 @@ import { StatusGrid } from "./components/StatusCard.js";
 import { ChatFeed } from "./components/ChatFeed.js";
 import { ModLog } from "./components/ModLog.js";
 import { BlacklistEditor } from "./components/BlacklistEditor.js";
+import { EmojiMappingsEditor } from "./components/EmojiMappingsEditor.js";
 import { ConfigPanel } from "./components/ConfigPanel.js";
 import { ControlPanel } from "./components/ControlPanel.js";
 import { AuditLog } from "./components/AuditLog.js";
@@ -114,6 +115,23 @@ function BlacklistPage() {
   `;
 }
 
+function EmojiMappingsPage() {
+  if (!canModerate.value) {
+    return html`
+      <div class="alert alert-error">You need moderator permissions to view this page.</div>
+    `;
+  }
+  return html`
+    <div>
+      <header class="page-header">
+        <h1 class="page-title">Emoji Mappings</h1>
+        <p class="page-subtitle">Convert YouTube emojis for Twitch chat relay</p>
+      </header>
+      <${EmojiMappingsEditor} />
+    </div>
+  `;
+}
+
 function SettingsPage() {
   if (!canModerate.value) {
     return html`
@@ -210,6 +228,8 @@ function Router({ route }) {
       return html`<${ModLogPage} />`;
     case "/blacklist":
       return html`<${BlacklistPage} />`;
+    case "/emoji-mappings":
+      return html`<${EmojiMappingsPage} />`;
     case "/settings":
       return html`<${SettingsPage} />`;
     case "/control":
