@@ -182,7 +182,7 @@ class TwitchBot:
 
     # ── Channel status ────────────────────────────────────────────
 
-    def is_channel_live(self, debug=False):
+    def is_channel_live(self):
         """Check if the Twitch channel is live."""
         try:
             response = requests.get(
@@ -198,11 +198,8 @@ class TwitchBot:
 
             streams = data.get("data", [])
             if streams and streams[0].get("type") == "live":
-                title = streams[0].get("title", "Untitled")
-                print(f"Twitch channel is live: \"{title}\"", flush=True)
                 return True
 
-            print(f"Twitch channel (ID: {self.channel_user_id}) is offline", flush=True)
             return False
 
         except requests.exceptions.RequestException as e:
