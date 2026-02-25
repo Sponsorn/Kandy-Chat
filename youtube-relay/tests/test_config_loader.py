@@ -48,18 +48,26 @@ def test_load_config_missing_required_raises():
             load_config()
 
 
-def test_load_config_missing_auth_raises():
-    """Config loader raises when neither oauth token nor refresh credentials provided."""
+def test_load_config_no_auth_still_works():
+    """Config loader accepts no auth tokens (relay reads from shared tokens.json)."""
     env = {
         "YOUTUBE_CHANNEL_URL": "https://www.youtube.com/@TestChannel",
         "TWITCH_BOT_USER_ID": "123456",
         "TWITCH_CLIENT_ID": "test_client_id",
         "TWITCH_CHANNEL_USER_ID": "789012",
     }
-    with patch.dict(os.environ, env, clear=True):
-        from config_loader import load_config
-        with pytest.raises(ValueError, match="TWITCH_OAUTH_TOKEN"):
-            load_config()
+    with patch.dict(os.environ, env, clear=False):
+        with patch("config_loader.os.environ.get") as mock_get:
+            # Simulate missing auth by returning empty for auth keys
+            def side_effect(key, default=""):
+                if key in env:
+                    return env[key]
+                return default
+            mock_get.side_effect = side_effect
+            # No ValueError should be raised — auth is optional
+            from config_loader import load_config
+            config = load_config()
+            assert "twitch_oauth_token" in config
 
 
 def test_load_config_oauth_token_only():

@@ -35,16 +35,9 @@ def load_config():
             "Copy .env.example to .env and fill in your values."
         )
 
-    # Need either an OAuth token or client_secret + refresh_token for auto-refresh
-    has_oauth = bool(os.environ.get("TWITCH_OAUTH_TOKEN"))
-    has_refresh = bool(os.environ.get("TWITCH_CLIENT_SECRET")) and bool(
-        os.environ.get("TWITCH_BOT_REFRESH_TOKEN")
-    )
-    if not has_oauth and not has_refresh:
-        raise ValueError(
-            "Must provide either TWITCH_OAUTH_TOKEN or both "
-            "TWITCH_CLIENT_SECRET and TWITCH_BOT_REFRESH_TOKEN"
-        )
+    # Auth is optional at config time — relay reads from shared data/tokens.json
+    # at startup. Client secret + refresh token are kept as fallback if tokens.json
+    # is unavailable (e.g. first run without main bot).
 
     return {
         "youtube_channel_url": os.environ["YOUTUBE_CHANNEL_URL"],
