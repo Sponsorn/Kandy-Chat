@@ -297,8 +297,9 @@ class TwitchBot:
         Returns:
             True if token is valid, False otherwise
         """
-        if self.broadcaster_oauth_token == self.oauth_token:
-            # Using same token, already validated
+        if not self.broadcaster_oauth_token or self.broadcaster_oauth_token == self.oauth_token:
+            # No separate broadcaster token — use bot token
+            self.broadcaster_oauth_token = self.oauth_token
             return True
 
         try:
