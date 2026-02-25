@@ -94,7 +94,7 @@ No build step — code runs directly via Node.js ESM modules.
 
 #### [src/services/tokenService.js](src/services/tokenService.js)
 - Token refresh orchestration and scheduling
-- Persists refresh tokens to `data/tokens.json` (not `.env`)
+- Persists both access and refresh tokens to `data/tokens.json` (shared with youtube-relay)
 - `loadPersistedRefreshToken()`: loads saved token at startup (overrides `.env` value)
 - `createTokenProvider()`: factory for API client token access
 
@@ -176,6 +176,7 @@ The same access token is shared between:
 - Twitch IRC connection (tmi.js)
 - Twitch Helix API calls (moderation, user lookups)
 - Freeze monitor HLS access (via `FREEZE_OAUTH_BEARER`)
+- YouTube relay (reads from shared `data/tokens.json`)
 
 ### Permission Model
 
@@ -211,9 +212,10 @@ Critical dependencies between env vars:
 - Permission levels determined by Discord roles (`ADMIN_ROLE_ID`, `MOD_ROLE_ID`) or Twitch moderator status
 
 ### Data Persistence
-- `data/blacklist.json`: Runtime blacklist (managed by `/klb` commands)
+- `data/blacklist.json`: Runtime blacklist (managed by `/klb` commands), also read by youtube-relay
 - `data/blacklist-metadata.json`: Full Twitch blocked term metadata from imports
-- `data/tokens.json`: Persisted refresh token (auto-updated on rotation, overrides `.env` at startup)
+- `data/tokens.json`: Shared access + refresh tokens (written by main bot, read by youtube-relay)
+- `data/emoji-mappings.json`: YouTube emoji → text mappings (managed via dashboard, read by youtube-relay)
 
 ## Common Patterns
 
@@ -254,18 +256,23 @@ Usage: call methods like `twitchAPIClient.deleteMessage()`, `twitchAPIClient.ban
 A self-contained Python service that reads YouTube live chat and relays messages to Twitch chat. Runs as a separate Docker container alongside the main bot.
 
 ### Key Files
-- `youtube-relay/bot.py`: Main coordinator — connects Twitch, starts YouTube reader, runs message relay loop
-- `youtube-relay/youtube_reader.py`: YouTube chat reader using `chat_downloader` (InnerTube scraping, no API key)
-- `youtube-relay/twitch_bot.py`: Twitch WebSocket EventSub client — token refresh, blocked terms, Helix send_message
-- `youtube-relay/config_loader.py`: Loads config from `.env` file
+- `youtube-relay/bot.py`: Main coordinator — connects Twitch, starts YouTube reader, runs message relay loop. Includes spam protection (per-user rate limiting, duplicate message filtering).
+- `youtube-relay/youtube_reader.py`: YouTube chat reader using yt-dlp for stream discovery and YouTube innertube API for real-time chat polling (no API key required)
+- `youtube-relay/twitch_bot.py`: HTTP-only Twitch API client — sends messages via Helix API, reads shared `data/tokens.json` for auth, loads blacklist from `data/blacklist.json` with regex support
+- `youtube-relay/emoji_converter.py`: Converts YouTube emoji shortcodes (`:heart:`, `:smile:`) to text using mappings from `data/emoji-mappings.json`, reloads every 5 min
+- `youtube-relay/config_loader.py`: Loads config from `.env` file (auth tokens optional — reads from shared `data/tokens.json`)
 - `youtube-relay/run.py`: Entry point
 
 ### How It Works
-1. `YouTubeChatReader` runs `chat_downloader` in a daemon thread, pushing messages to a `queue.Queue`
+1. `YouTubeChatReader` uses yt-dlp to find the live stream, then polls YouTube's innertube API for chat messages in a daemon thread
 2. Main loop consumes from the queue with `queue.get(timeout=1)`
-3. Messages are formatted (`[YT] author: message`), checked against Twitch blocked terms, and sent via Helix API
-4. Blocked terms are refreshed periodically (configurable, default 30 min)
-5. Relay pauses when Twitch channel goes offline
+3. Messages pass through emoji conversion, spam protection (3 msgs/30s per user, duplicate filter), and blacklist checking
+4. Messages are formatted (`[YT] author: message`) and sent to Twitch via Helix API
+5. Blacklist is loaded from shared `data/blacklist.json` (same file as main bot), reloads only when file changes
+6. Relay pauses when Twitch channel goes offline (logs once, heartbeat every 10 min)
+
+### Token Sharing
+The youtube-relay reads its Twitch access token from `data/tokens.json`, written by the main bot. This avoids token refresh race conditions. The relay only refreshes as a fallback if `tokens.json` is unavailable. Docker Compose `depends_on` ensures the main bot starts first.
 
 ### Running
 ```bash
@@ -273,14 +280,14 @@ A self-contained Python service that reads YouTube live chat and relays messages
 cd youtube-relay && python run.py
 
 # Docker (alongside Kandy Chat)
-docker compose up -d youtube-relay
+docker compose up -d
 
 # Tests
 cd youtube-relay && python -m pytest tests/ -v
 ```
 
 ### Config
-See `youtube-relay/.env.example` for all configuration options.
+See `youtube-relay/.env.example` for all configuration options. Auth tokens (`TWITCH_OAUTH_TOKEN`, `TWITCH_BOT_REFRESH_TOKEN`) are optional when running alongside the main bot.
 
 ## Deployment
 
