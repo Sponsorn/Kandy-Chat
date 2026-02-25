@@ -1,5 +1,6 @@
 """YouTube to Twitch Chat Bot - Main coordinator."""
 
+import os
 import time
 import socket
 import requests
@@ -34,6 +35,13 @@ class YouTubeToTwitchBot:
         self.skip_twitch_live_check = config.get("skip_twitch_live_check", False)
         self.blocked_terms_refresh_minutes = config.get("blocked_terms_refresh_minutes", 30)
         self.running = False
+
+        from emoji_converter import EmojiConverter
+        self.emoji_converter = EmojiConverter(
+            os.path.join(os.path.dirname(__file__), "..", "data"),
+            reload_interval=300,
+        )
+        self.emoji_converter.reload()
 
     def wait_for_stream_start(self):
         """Wait for Twitch channel to go live before starting YouTube polling."""
@@ -146,6 +154,10 @@ class YouTubeToTwitchBot:
                     message_text = msg["message"]
                     if message_text:
                         message_text = message_text[0].upper() + message_text[1:]
+
+                    # Convert YouTube emojis
+                    self.emoji_converter.reload_if_needed()
+                    message_text = self.emoji_converter.convert(message_text)
 
                     formatted_msg = self.message_format.format(
                         author=msg["author"],

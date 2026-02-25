@@ -29,6 +29,7 @@ services:
     env_file:
       - ./youtube-relay/.env
     volumes:
+      - ./data:/app/data:ro
       - ./youtube-relay/.bot_message_counter:/app/.bot_message_counter
     logging:
       driver: "json-file"
