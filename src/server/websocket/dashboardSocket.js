@@ -236,6 +236,10 @@ export function createDashboardSocket(server) {
     broadcast("raid:incoming", data, Permissions.MODERATOR);
   });
 
+  botState.on("emoji-mappings:updated", (mappings) => {
+    broadcast("emoji-mappings:updated", mappings, Permissions.MODERATOR);
+  });
+
   // Periodic status broadcast every 30 seconds
   setInterval(() => {
     broadcast("status:update", botState.getSnapshot(), Permissions.MODERATOR);
