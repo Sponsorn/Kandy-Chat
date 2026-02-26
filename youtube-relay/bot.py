@@ -1,5 +1,6 @@
 """YouTube to Twitch Chat Bot - Main coordinator."""
 
+import json
 import os
 import time
 import socket
@@ -124,6 +125,27 @@ class YouTubeToTwitchBot:
         ]
         for user in stale_msgs:
             del self._user_last_message[user]
+
+    def _read_stream_status(self):
+        """Read live status from shared data/stream-status.json (written by main bot).
+
+        Returns True if any channel is live, False otherwise.
+        Returns False if the file is missing or unreadable (assume offline).
+        """
+        status_path = os.path.join(os.path.dirname(__file__), "..", "data", "stream-status.json")
+        if not os.path.isfile(status_path):
+            status_path = os.path.join(os.path.dirname(__file__), "data", "stream-status.json")
+
+        try:
+            with open(status_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return False
+
+        for channel_name, info in data.items():
+            if isinstance(info, dict) and info.get("live") is True:
+                return True
+        return False
 
     def wait_for_stream_start(self):
         """Wait for Twitch channel to go live before starting YouTube polling."""
