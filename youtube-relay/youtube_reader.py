@@ -40,7 +40,16 @@ class YouTubeChatReader:
 
     def start(self):
         """Start the background chat reader thread."""
+        if self._thread and self._thread.is_alive():
+            self.stop()
+            self._thread.join(timeout=10)
         self.running = True
+        # Clear the queue so stale messages from before offline aren't relayed
+        while not self.queue.empty():
+            try:
+                self.queue.get_nowait()
+            except Exception:
+                break
         self._thread = threading.Thread(target=self._read_loop, daemon=True)
         self._thread.start()
 
