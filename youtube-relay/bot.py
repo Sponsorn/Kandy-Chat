@@ -46,9 +46,6 @@ class YouTubeToTwitchBot:
         self.debug_mode = config.get("debug_mode", False)
         self.auto_restart = config.get("auto_restart", True)
         self.restart_delay = config.get("restart_delay", 30)
-        self.wait_for_twitch_live_enabled = config.get("wait_for_twitch_live", True)
-        self.twitch_check_interval = config.get("twitch_check_interval", 60)
-        self.skip_twitch_live_check = config.get("skip_twitch_live_check", False)
         self.blocked_terms_refresh_minutes = config.get("blocked_terms_refresh_minutes", 30)
         self.running = False
 
@@ -148,31 +145,29 @@ class YouTubeToTwitchBot:
         return False
 
     def wait_for_stream_start(self):
-        """Wait for Twitch channel to go live before starting YouTube polling."""
-        log("Waiting for Twitch channel to go live...")
+        """Wait for stream to go live by watching data/stream-status.json."""
+        log("Waiting for stream to go live (watching stream-status.json)...")
 
         check_count = 0
         start_time = time.time()
         try:
             while self.running:
                 check_count += 1
-                is_live = self.twitch.is_channel_live()
-
-                if is_live:
+                if self._read_stream_status():
                     elapsed = int(time.time() - start_time)
-                    log(f"Twitch channel is now live! (detected after {elapsed}s)")
+                    log(f"Stream is now live! (detected after {elapsed}s)")
                     return True
 
-                # Heartbeat every 10 checks (~10 min at default 60s interval)
-                if check_count % 10 == 0:
+                # Heartbeat every 60 checks (~10 min at 10s interval)
+                if check_count % 60 == 0:
                     elapsed = int(time.time() - start_time)
                     minutes = elapsed // 60
-                    log(f"   Still waiting for Twitch to go live ({minutes}m elapsed)")
+                    log(f"   Still waiting for stream to go live ({minutes}m elapsed)")
 
-                time.sleep(self.twitch_check_interval)
+                time.sleep(10)
 
         except KeyboardInterrupt:
-            log("Cancelled waiting for Twitch to go live")
+            log("Cancelled waiting for stream")
             return False
 
         return False
@@ -191,20 +186,12 @@ class YouTubeToTwitchBot:
 
         self.running = True
 
-        # Check Twitch live status
-        if self.skip_twitch_live_check:
-            log("Skipping Twitch live check")
-        elif self.wait_for_twitch_live_enabled and not self.debug_mode:
-            log("Smart polling enabled: Will wait for Twitch to go live")
-            if not self.twitch.is_channel_live():
+        # Wait for stream to go live
+        if not self.debug_mode:
+            if not self._read_stream_status():
                 if not self.wait_for_stream_start():
                     log("Exiting...")
                     return
-        elif not self.debug_mode:
-            log("Checking Twitch channel status...")
-            if not self.twitch.is_channel_live():
-                log("Warning: Twitch channel is not live!")
-                log("Messages will be relayed but may not be visible.")
 
         # Connect to Twitch
         log("Connecting to Twitch...")
@@ -228,26 +215,28 @@ class YouTubeToTwitchBot:
         try:
             while self.running:
                 try:
-                    # Periodically check if Twitch is still live
-                    if not self.skip_twitch_live_check and (
-                        time.time() - last_twitch_live_check >= self.twitch_check_interval
-                    ):
-                        is_live = self.twitch.is_channel_live()
+                    # Periodically check stream status from file
+                    if time.time() - last_twitch_live_check >= 10:
+                        is_live = self._read_stream_status()
                         last_twitch_live_check = time.time()
 
                         if was_live and not is_live:
-                            log("Twitch channel went offline. Pausing relay.")
+                            log("Stream went offline. Pausing relay.")
                             was_live = False
                             offline_since = time.time()
+                            # Stop YouTube reader to avoid pointless scraping
+                            self.youtube.stop()
                         elif not was_live and is_live:
                             elapsed = int(time.time() - offline_since) if offline_since else 0
-                            log(f"Twitch channel is back online! Resuming relay. (offline {elapsed}s)")
+                            log(f"Stream is back online! Resuming relay. (offline {elapsed}s)")
                             was_live = True
                             offline_since = None
+                            # Restart YouTube reader
+                            self.youtube.start()
                         elif not was_live and offline_since:
                             # Periodic heartbeat while offline (~10 min)
                             elapsed = int(time.time() - offline_since)
-                            if elapsed > 0 and elapsed % 600 < self.twitch_check_interval:
+                            if elapsed > 0 and elapsed % 600 < 10:
                                 minutes = elapsed // 60
                                 log(f"   Still offline ({minutes}m). Waiting...")
 
@@ -259,8 +248,8 @@ class YouTubeToTwitchBot:
                         self._cleanup_spam_state()
                         last_cleanup = time.time()
 
-                    # If Twitch is offline, don't consume messages
-                    if not was_live and not self.skip_twitch_live_check:
+                    # If stream is offline, don't consume messages
+                    if not was_live:
                         time.sleep(1)
                         continue
 
