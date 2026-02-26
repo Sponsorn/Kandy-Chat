@@ -19,7 +19,7 @@ class EmojiConverter:
         self._mappings = {}
         self._last_reload = 0
         self._reload_interval = reload_interval
-        self._pattern = re.compile(r":[a-zA-Z0-9_]+:")
+        self._pattern = re.compile(r":[a-zA-Z0-9_-]+:")
 
     def reload(self):
         """Reload mappings from the JSON file."""
@@ -88,7 +88,7 @@ class EmojiConverter:
 
         result = self._pattern.sub(replace_match, message)
         # Ensure a space before emojis jammed against text (e.g. "Mom:heart:")
-        result = re.sub(r"(?<=\S)(:[a-zA-Z0-9_]+:)", r" \1", result)
+        result = re.sub(r"(?<=\S)(:[a-zA-Z0-9_-]+:)", r" \1", result)
         result = re.sub(r"  +", " ", result).strip()
         return result
 
