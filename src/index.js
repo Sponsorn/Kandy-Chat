@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { existsSync } from "node:fs";
+import { promises as fs } from "node:fs";
 import { join } from "node:path";
 
 // Check for stop flag before doing anything else
@@ -265,6 +266,22 @@ async function start() {
       freezeOnlineResolve = resolve;
     });
 
+  async function writeStreamStatus(channel, live) {
+    const statusPath = join(process.cwd(), "data", "stream-status.json");
+    let status = {};
+    try {
+      const content = await fs.readFile(statusPath, "utf8");
+      status = JSON.parse(content);
+    } catch {
+      // File doesn't exist yet or is invalid — start fresh
+    }
+    status[channel] = { live, timestamp: new Date().toISOString() };
+    const tmpPath = statusPath + ".tmp";
+    await fs.mkdir(join(process.cwd(), "data"), { recursive: true });
+    await fs.writeFile(tmpPath, JSON.stringify(status, null, 2), "utf8");
+    await fs.rename(tmpPath, statusPath);
+  }
+
   const webServer = await startWebServer(process.env, {
     logger: console,
     twitchAPIClient,
@@ -280,6 +297,9 @@ async function start() {
       if (type === "stream.online") {
         console.log(`${broadcasterName} went live on Twitch`);
         botState.setStreamStatus(broadcasterName.toLowerCase(), "online");
+        writeStreamStatus(broadcasterName.toLowerCase(), true).catch((err) =>
+          console.error("Failed to write stream status:", err)
+        );
         lastOnlineTimestamp.set(broadcasterName.toLowerCase(), Date.now());
 
         // Cancel any pending offline alert (handles offline→online restart order)
@@ -312,6 +332,9 @@ async function start() {
       } else if (type === "stream.offline") {
         console.log(`${broadcasterName} went offline on Twitch`);
         botState.setStreamStatus(broadcasterName.toLowerCase(), "offline");
+        writeStreamStatus(broadcasterName.toLowerCase(), false).catch((err) =>
+          console.error("Failed to write stream status:", err)
+        );
 
         const offlineAlertChannels = process.env.OFFLINE_ALERT_CHANNELS?.split(",")
           .map((c) => c.trim().toLowerCase())
