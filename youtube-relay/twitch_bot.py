@@ -249,33 +249,6 @@ class TwitchBot:
         except requests.exceptions.RequestException as e:
             _log(f"Error sending message: {e}")
 
-    # ── Channel status ────────────────────────────────────────────
-
-    def is_channel_live(self):
-        """Check if the Twitch channel is live."""
-        try:
-            response = requests.get(
-                f"https://api.twitch.tv/helix/streams?user_id={self.channel_user_id}",
-                headers={
-                    "Authorization": f"Bearer {self.oauth_token}",
-                    "Client-Id": self.client_id,
-                },
-                timeout=5,
-            )
-            response.raise_for_status()
-            data = response.json()
-
-            streams = data.get("data", [])
-            if streams and streams[0].get("type") == "live":
-                return True
-
-            return False
-
-        except requests.exceptions.RequestException as e:
-            _log(f"Could not check Twitch live status: {e}")
-            _log("  Assuming channel is live and continuing...")
-            return True
-
     # ── Blocked terms ─────────────────────────────────────────────
 
     def fetch_blocked_terms(self):

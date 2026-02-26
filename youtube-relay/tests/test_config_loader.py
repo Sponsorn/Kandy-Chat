@@ -34,9 +34,6 @@ def test_load_config_defaults():
         assert config["debug_mode"] is False
         assert config["auto_restart"] is True
         assert config["restart_delay"] == 30
-        assert config["wait_for_twitch_live"] is True
-        assert config["twitch_check_interval"] == 60
-        assert config["skip_twitch_live_check"] is False
         assert config["blocked_terms_refresh_minutes"] == 30
 
 
@@ -90,10 +87,8 @@ def test_load_config_bool_parsing():
     env = {
         **BASE_ENV,
         "DEBUG_MODE": "true",
-        "WAIT_FOR_TWITCH_LIVE": "false",
     }
     with patch.dict(os.environ, env, clear=False):
         from config_loader import load_config
         config = load_config()
         assert config["debug_mode"] is True
-        assert config["wait_for_twitch_live"] is False

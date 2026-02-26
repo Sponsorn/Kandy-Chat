@@ -55,9 +55,6 @@ def load_config():
         "debug_mode": _parse_bool(os.environ.get("DEBUG_MODE", "false")),
         "auto_restart": _parse_bool(os.environ.get("AUTO_RESTART", "true")),
         "restart_delay": int(os.environ.get("RESTART_DELAY", "30")),
-        "wait_for_twitch_live": _parse_bool(os.environ.get("WAIT_FOR_TWITCH_LIVE", "true")),
-        "twitch_check_interval": int(os.environ.get("TWITCH_CHECK_INTERVAL", "60")),
-        "skip_twitch_live_check": _parse_bool(os.environ.get("SKIP_TWITCH_LIVE_CHECK", "false")),
         "blocked_terms_refresh_minutes": int(
             os.environ.get("BLOCKED_TERMS_REFRESH_MINUTES", "30")
         ),
