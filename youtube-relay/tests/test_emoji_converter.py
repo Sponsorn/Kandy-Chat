@@ -80,3 +80,158 @@ def test_reload_if_needed_respects_interval():
     with patch.object(converter, "reload") as mock_reload:
         converter.reload_if_needed()
         mock_reload.assert_not_called()
+
+
+# --- collapse_emojis tests ---
+
+
+def test_collapse_no_emojis():
+    """Messages without emojis are returned unchanged."""
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    assert converter.collapse_emojis("Hello world") == "Hello world"
+
+
+def test_collapse_single_emoji():
+    """A single emoji is kept as-is."""
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    assert converter.collapse_emojis("I :heart: this") == "I :heart: this"
+
+
+def test_collapse_duplicate_emojis():
+    """Duplicate emojis are collapsed with a count."""
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    result = converter.collapse_emojis("I :heart: :heart: :heart: :smile: text")
+    assert result == "I :heart: x3 :smile: text"
+
+
+def test_collapse_two_duplicates():
+    """Two occurrences get x2."""
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    result = converter.collapse_emojis(":fire: :fire:")
+    assert result == ":fire: x2"
+
+
+def test_collapse_limits_unique_emojis():
+    """More than 5 unique emojis — extras are stripped."""
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    msg = ":a: :b: :c: :d: :e: :f: :g:"
+    result = converter.collapse_emojis(msg)
+    assert result == ":a: :b: :c: :d: :e:"
+
+
+def test_collapse_exactly_five_unique():
+    """Exactly 5 unique emojis — all kept."""
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    msg = ":a: :b: :c: :d: :e:"
+    result = converter.collapse_emojis(msg)
+    assert result == ":a: :b: :c: :d: :e:"
+
+
+def test_collapse_duplicates_and_unique_limit():
+    """Duplicates are collapsed AND unique limit is enforced."""
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    msg = ":a: :a: :a: :b: :c: :d: :e: :f: :f:"
+    result = converter.collapse_emojis(msg)
+    assert result == ":a: x3 :b: :c: :d: :e:"
+
+
+def test_collapse_adjacent_emojis():
+    """Adjacent emojis without spaces are handled."""
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    result = converter.collapse_emojis(":heart::heart::heart:")
+    assert result == ":heart: x3"
+
+
+def test_collapse_mixed_text_and_emojis():
+    """Text between emojis is preserved."""
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    result = converter.collapse_emojis("hello :wave: nice :wave: bye")
+    assert result == "hello :wave: x2 nice bye"
+
+
+def test_collapse_custom_max_unique():
+    """max_unique parameter is respected."""
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    msg = ":a: :b: :c: :d:"
+    result = converter.collapse_emojis(msg, max_unique=2)
+    assert result == ":a: :b:"
+
+
+def test_collapse_only_emojis_all_same():
+    """Message of only repeated emojis collapses to one with count."""
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    result = converter.collapse_emojis(":thanksdoc: :thanksdoc: :thanksdoc:")
+    assert result == ":thanksdoc: x3"
+
+
+def test_normalize_caps_all_uppercase():
+    """ALL CAPS message is lowercased."""
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    assert converter.normalize_caps("LOVE MOM") == "love mom"
+
+
+def test_normalize_caps_mixed_case_unchanged():
+    """Mixed case message is left alone."""
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    assert converter.normalize_caps("Hello World") == "Hello World"
+
+
+def test_normalize_caps_ignores_emoji_shortcodes():
+    """Emoji shortcodes don't count toward the caps check."""
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    msg = "LOVE MOM:yougotthis::thanksdoc:"
+    assert converter.normalize_caps(msg) == "love mom:yougotthis::thanksdoc:"
+
+
+def test_normalize_caps_single_char_unchanged():
+    """Single alpha character is not enough to trigger lowercasing."""
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    assert converter.normalize_caps("A") == "A"
+
+
+def test_normalize_caps_no_alpha_unchanged():
+    """Message with no alpha characters is left alone."""
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    assert converter.normalize_caps("123 :heart: :heart:") == "123 :heart: :heart:"
+
+
+def test_collapse_space_between_text_and_emoji():
+    """A space is inserted when an emoji is jammed against text."""
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    msg = "Love Mom:yougotthis::yougotthis::thanksdoc::thanksdoc:"
+    result = converter.collapse_emojis(msg)
+    assert result == "Love Mom :yougotthis: x2 :thanksdoc: x2"

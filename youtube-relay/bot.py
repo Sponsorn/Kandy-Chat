@@ -263,12 +263,14 @@ class YouTubeToTwitchBot:
                     author = msg["author"]
                     message_text = msg["message"]
 
-                    # Capitalize first letter
+                    # Normalize ALL CAPS to sentence case
                     if message_text:
+                        message_text = self.emoji_converter.normalize_caps(message_text)
                         message_text = message_text[0].upper() + message_text[1:]
 
                     # Convert YouTube emojis
                     self.emoji_converter.reload_if_needed()
+                    message_text = self.emoji_converter.collapse_emojis(message_text)
                     message_text = self.emoji_converter.convert(message_text)
 
                     # Spam protection: duplicate check
