@@ -216,6 +216,7 @@ Critical dependencies between env vars:
 - `data/blacklist-metadata.json`: Full Twitch blocked term metadata from imports
 - `data/tokens.json`: Shared access + refresh tokens (written by main bot, read by youtube-relay)
 - `data/emoji-mappings.json`: YouTube emoji → text mappings (managed via dashboard, read by youtube-relay)
+- `data/stream-status.json`: Per-channel live status (written by main bot on EventSub events, read by youtube-relay)
 
 ## Common Patterns
 
@@ -269,7 +270,7 @@ A self-contained Python service that reads YouTube live chat and relays messages
 3. Messages pass through emoji conversion, spam protection (3 msgs/30s per user, duplicate filter), and blacklist checking
 4. Messages are formatted (`[YT] author: message`) and sent to Twitch via Helix API
 5. Blacklist is loaded from shared `data/blacklist.json` (same file as main bot), reloads only when file changes
-6. Relay pauses when Twitch channel goes offline (logs once, heartbeat every 10 min)
+6. Relay watches `data/stream-status.json` (written by main bot on EventSub events) to detect stream online/offline — stops YouTube reader when offline, restarts when live again
 
 ### Token Sharing
 The youtube-relay reads its Twitch access token from `data/tokens.json`, written by the main bot. This avoids token refresh race conditions. The relay only refreshes as a fallback if `tokens.json` is unavailable. Docker Compose `depends_on` ensures the main bot starts first.

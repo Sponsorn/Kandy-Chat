@@ -382,9 +382,7 @@ async function start() {
           pendingOfflineTimers.delete(broadcasterName.toLowerCase());
 
           // Re-check — stream may have come back online during the delay
-          if (
-            botState.metrics.streamStatusByChannel[broadcasterName.toLowerCase()] === "online"
-          ) {
+          if (botState.metrics.streamStatusByChannel[broadcasterName.toLowerCase()] === "online") {
             console.log(
               `Skipping offline alert - ${broadcasterName} came back online during delay`
             );
