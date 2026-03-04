@@ -311,6 +311,32 @@ async function getPlaybackAccessToken(channel, clientId, authToken) {
   )}.m3u8?${params.toString()}`;
 }
 
+async function fetchMasterAndSelectVariant(masterUrl) {
+  const response = await fetch(masterUrl);
+  if (!response.ok) throw new Error(`Master playlist fetch failed: ${response.status}`);
+  const text = await response.text();
+  const variantUrl = parseMasterPlaylist(text);
+  if (!variantUrl) throw new Error("No suitable variant found in master playlist");
+  // Handle relative URLs
+  if (variantUrl.startsWith("http")) return variantUrl;
+  const base = masterUrl.substring(0, masterUrl.lastIndexOf("/") + 1);
+  return base + variantUrl;
+}
+
+async function fetchMediaPlaylist(url) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Media playlist fetch failed: ${response.status}`);
+  const text = await response.text();
+  return parseMediaPlaylist(text);
+}
+
+async function hashSegment(segmentUrl) {
+  const response = await fetch(segmentUrl);
+  if (!response.ok) throw new Error(`Segment fetch failed: ${response.status}`);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  return createHash("sha1").update(buffer).digest("hex");
+}
+
 export async function startFreezeMonitor(
   env,
   { onFreeze, onRecover, onOffline, onOnline, waitForOnline, logger }
@@ -325,114 +351,129 @@ export async function startFreezeMonitor(
   const tokenRefreshSeconds = parseIntEnv(env.FREEZE_TOKEN_REFRESH_SECONDS, 300);
   const debug = parseBool(env.FREEZE_DEBUG, false);
   const offlineFailThreshold = parseIntEnv(env.FREEZE_OFFLINE_FAILS, 3);
-  const recoveryFrames = parseIntEnv(env.FREEZE_RECOVERY_FRAMES, 3);
-  const offlineBackoffSeconds = parseIntEnv(env.FREEZE_OFFLINE_BACKOFF_SECONDS, 30);
-  // Polling interval when EventSub is disabled (default: 60 seconds)
   const pollWhenOfflineSeconds = parseIntEnv(env.FREEZE_POLL_WHEN_OFFLINE_SECONDS, 60);
-  let nextRefreshAt = 0;
-
-  // If no waitForOnline provided, use polling-based recovery
-  const effectiveWaitForOnline = waitForOnline || createPollingWait(pollWhenOfflineSeconds, logger);
-
   const sampleSeconds = parseIntEnv(env.FREEZE_SAMPLE_SECONDS, 5);
-  const thresholdSeconds = parseIntEnv(env.FREEZE_THRESHOLD_SECONDS, 20);
   const ffmpegTimeoutSeconds = parseIntEnv(env.FREEZE_FFMPEG_TIMEOUT_SECONDS, 8);
-  const ffmpegOk = await checkFfmpeg();
+  const recoveryChecks = parseIntEnv(env.FREEZE_RECOVERY_FRAMES, 3);
+  const l1StaleChecks = parseIntEnv(env.FREEZE_L1_STALE_CHECKS, 4);
+  const l2MatchChecks = parseIntEnv(env.FREEZE_L2_MATCH_CHECKS, 2);
+  const l3MatchChecks = parseIntEnv(env.FREEZE_L3_MATCH_CHECKS, 1);
 
-  if (!ffmpegOk) {
-    logger?.warn("Freeze monitor disabled: ffmpeg not found");
-    return;
-  }
+  let nextRefreshAt = 0;
+  const effectiveWaitForOnline =
+    waitForOnline || createPollingWait(pollWhenOfflineSeconds, logger);
 
   if (!hlsUrl && !channel) {
     logger?.warn("Freeze monitor disabled: FREEZE_HLS_URL or FREEZE_CHANNEL required");
     return;
   }
 
-  logger?.log(`Freeze monitor enabled: sample ${sampleSeconds}s, threshold ${thresholdSeconds}s`);
+  const ffmpegAvailable = await checkFfmpeg();
+  if (!ffmpegAvailable) {
+    logger?.log("Freeze monitor: ffmpeg not found, Level 3 (frame capture) disabled");
+  }
 
-  let lastHash = null;
-  let lastChangeAt = Date.now();
-  let frozen = false;
-  let motionFrames = 0;
+  logger?.log(
+    `Freeze monitor enabled: sample ${sampleSeconds}s, levels 1-${ffmpegAvailable ? 3 : 2}`
+  );
+
+  let state = createEscalationState({
+    l1StaleChecks,
+    l2MatchChecks,
+    l3MatchChecks,
+    recoveryChecks,
+    ffmpegAvailable,
+  });
+  let mediaPlaylistUrl = null;
   let offline = false;
   let consecutiveFailures = 0;
 
   while (true) {
-    const now = Date.now();
-    const outputPath = join(tmpdir(), `kandy-frame-${now}.jpg`);
-
     try {
+      // Refresh master playlist URL if needed
       if (!hlsUrl || Date.now() >= nextRefreshAt) {
-        if (!channel) {
-          throw new Error("FREEZE_CHANNEL is required for auto-fetch");
-        }
+        if (!channel) throw new Error("FREEZE_CHANNEL is required for auto-fetch");
         hlsUrl = await getPlaybackAccessToken(channel, clientId, getAuthToken());
         nextRefreshAt = Date.now() + tokenRefreshSeconds * 1000;
+        mediaPlaylistUrl = null; // force re-resolve
       }
 
+      // Resolve media playlist URL from master if needed
+      if (!mediaPlaylistUrl) {
+        mediaPlaylistUrl = await fetchMasterAndSelectVariant(hlsUrl);
+        if (debug) logger?.log(`Freeze monitor: using variant ${mediaPlaylistUrl}`);
+      }
+
+      // Level 1: fetch media playlist
+      const playlist = await fetchMediaPlaylist(mediaPlaylistUrl);
       if (debug) {
-        logger?.log("Freeze monitor: capturing frame");
-      }
-      const timeoutMs = Math.max(4000, ffmpegTimeoutSeconds * 1000);
-      await captureFrame(hlsUrl, outputPath, timeoutMs);
-      const hash = await hashFile(outputPath);
-      consecutiveFailures = 0;
-      if (offline) {
-        offline = false;
-        // Reset freeze state when coming back online
-        frozen = false;
-        motionFrames = 0;
-        lastHash = null;
-        lastChangeAt = Date.now();
-        onOnline?.();
+        logger?.log(
+          `Freeze monitor: L1 seq=${playlist.mediaSequence} segs=${playlist.segments.length} level=${state.level}`
+        );
       }
 
-      if (lastHash && hash === lastHash) {
-        if (debug) {
-          logger?.log("Freeze monitor: unchanged frame");
+      const cycleData = { segments: playlist.segments };
+
+      // Level 2: hash segment if escalation requires it
+      if (state.level === "L2_CHECK" && playlist.segments.length > 0) {
+        const lastSegment = playlist.segments[playlist.segments.length - 1];
+        try {
+          cycleData.segmentHash = await hashSegment(lastSegment);
+          if (debug) logger?.log(`Freeze monitor: L2 hash=${cycleData.segmentHash.slice(0, 8)}`);
+        } catch (err) {
+          logger?.warn(`Freeze monitor: L2 segment fetch failed: ${err.message}`);
         }
-        motionFrames = 0;
-        if (!frozen && now - lastChangeAt >= thresholdSeconds * 1000) {
-          frozen = true;
-          onFreeze?.();
-        }
-      } else {
-        if (debug) {
-          logger?.log("Freeze monitor: motion detected");
-        }
-        lastHash = hash;
-        lastChangeAt = now;
-        if (frozen) {
-          motionFrames += 1;
-          if (motionFrames >= recoveryFrames) {
-            frozen = false;
-            motionFrames = 0;
-            onRecover?.();
+      }
+
+      // Level 3: ffmpeg frame capture if escalation requires it
+      if (state.level === "L3_CHECK" && ffmpegAvailable) {
+        const now = Date.now();
+        const outputPath = join(tmpdir(), `kandy-frame-${now}.jpg`);
+        try {
+          const timeoutMs = Math.max(4000, ffmpegTimeoutSeconds * 1000);
+          await captureFrame(hlsUrl, outputPath, timeoutMs);
+          cycleData.frameHash = await hashFile(outputPath);
+          if (debug) logger?.log(`Freeze monitor: L3 hash=${cycleData.frameHash.slice(0, 8)}`);
+        } catch (err) {
+          logger?.warn(`Freeze monitor: L3 frame capture failed: ${err.message}`);
+        } finally {
+          try {
+            await fs.unlink(outputPath);
+          } catch {
+            /* ignore */
           }
         }
       }
+
+      // Run state machine
+      consecutiveFailures = 0;
+      if (offline) {
+        offline = false;
+        state = createEscalationState({
+          l1StaleChecks,
+          l2MatchChecks,
+          l3MatchChecks,
+          recoveryChecks,
+          ffmpegAvailable,
+        });
+        onOnline?.();
+      }
+
+      const callbacks = {};
+      state = runCheckCycle(state, cycleData, callbacks);
+
+      if (callbacks.onFreeze) onFreeze?.();
+      if (callbacks.onRecover) onRecover?.();
     } catch (error) {
       consecutiveFailures += 1;
       logger?.warn(`Freeze monitor error: ${error.message}`);
-      // Reset freeze tracking so post-recovery frames aren't compared
-      // against a stale hash from before the error (prevents false freeze alerts)
-      lastHash = null;
-      lastChangeAt = Date.now();
       if (!offline && consecutiveFailures >= offlineFailThreshold) {
         offline = true;
         onOffline?.();
       }
-    } finally {
-      try {
-        await fs.unlink(outputPath);
-      } catch {
-        // ignore cleanup errors
-      }
     }
 
     if (offline) {
-      // Use effectiveWaitForOnline which handles both EventSub and polling modes
       if (waitForOnline) {
         logger?.log("Freeze monitor: waiting for EventSub online signal");
       }
@@ -440,8 +481,8 @@ export async function startFreezeMonitor(
       if (waitForOnline) {
         logger?.log("Freeze monitor: received online signal, resuming");
       }
-      // Reset HLS URL so it gets re-fetched on next iteration
       hlsUrl = env.FREEZE_HLS_URL || null;
+      mediaPlaylistUrl = null;
       nextRefreshAt = 0;
       await sleep(sampleSeconds * 1000);
     } else {
