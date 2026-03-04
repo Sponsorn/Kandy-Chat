@@ -52,6 +52,7 @@ def load_config():
             "TWITCH_BROADCASTER_REFRESH_TOKEN", ""
         ),
         "message_format": os.environ.get("MESSAGE_FORMAT", "[YT] {author}: {message}"),
+        "twitch_channel_name": os.environ.get("TWITCH_CHANNEL_NAME", "").lower(),
         "debug_mode": _parse_bool(os.environ.get("DEBUG_MODE", "false")),
         "auto_restart": _parse_bool(os.environ.get("AUTO_RESTART", "true")),
         "restart_delay": int(os.environ.get("RESTART_DELAY", "30")),

@@ -42,6 +42,7 @@ class YouTubeToTwitchBot:
             broadcaster_refresh_token=config.get("twitch_broadcaster_refresh_token") or None,
         )
 
+        self.twitch_channel_name = config.get("twitch_channel_name", "")
         self.message_format = config.get("message_format", "[YT] {author}: {message}")
         self.debug_mode = config.get("debug_mode", False)
         self.auto_restart = config.get("auto_restart", True)
@@ -126,7 +127,8 @@ class YouTubeToTwitchBot:
     def _read_stream_status(self):
         """Read live status from shared data/stream-status.json (written by main bot).
 
-        Returns True if any channel is live, False otherwise.
+        If TWITCH_CHANNEL_NAME is set, only checks that specific channel.
+        Otherwise falls back to checking if any channel is live.
         Returns False if the file is missing or unreadable (assume offline).
         """
         status_path = os.path.join(os.path.dirname(__file__), "..", "data", "stream-status.json")
@@ -138,6 +140,10 @@ class YouTubeToTwitchBot:
                 data = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError, OSError):
             return False
+
+        if self.twitch_channel_name:
+            info = data.get(self.twitch_channel_name, {})
+            return isinstance(info, dict) and info.get("live") is True
 
         for channel_name, info in data.items():
             if isinstance(info, dict) and info.get("live") is True:
