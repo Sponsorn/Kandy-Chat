@@ -88,6 +88,45 @@ async function hashFile(path) {
   return createHash("sha1").update(buffer).digest("hex");
 }
 
+export function parseMasterPlaylist(text) {
+  const lines = text.split("\n").map((l) => l.trim());
+  let lowestBandwidth = Infinity;
+  let lowestUrl = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].startsWith("#EXT-X-STREAM-INF:")) continue;
+    const attrs = lines[i].substring("#EXT-X-STREAM-INF:".length);
+    // Skip audio-only variants (no RESOLUTION and VIDEO="audio_only")
+    if (!attrs.includes("RESOLUTION=") && attrs.includes("audio_only")) continue;
+    const bwMatch = attrs.match(/BANDWIDTH=(\d+)/);
+    if (!bwMatch) continue;
+    const bw = parseInt(bwMatch[1], 10);
+    const url = lines[i + 1];
+    if (url && !url.startsWith("#") && bw < lowestBandwidth) {
+      lowestBandwidth = bw;
+      lowestUrl = url;
+    }
+  }
+
+  return lowestUrl;
+}
+
+export function parseMediaPlaylist(text) {
+  const lines = text.split("\n").map((l) => l.trim());
+  let mediaSequence = 0;
+  const segments = [];
+
+  for (const line of lines) {
+    if (line.startsWith("#EXT-X-MEDIA-SEQUENCE:")) {
+      mediaSequence = parseInt(line.split(":")[1], 10) || 0;
+    } else if (line && !line.startsWith("#")) {
+      segments.push(line);
+    }
+  }
+
+  return { mediaSequence, segments };
+}
+
 const PLAYBACK_ACCESS_QUERY = {
   operationName: "PlaybackAccessToken",
   variables: {
