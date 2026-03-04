@@ -205,3 +205,36 @@ describe("escalation logic", () => {
     expect(state.frozen).toBe(true);
   });
 });
+
+describe("L2 edge cases", () => {
+  it("resets L2 match count when segment hashes differ", () => {
+    let state = createEscalationState({
+      l1StaleChecks: 1,
+      l2MatchChecks: 3,
+      l3MatchChecks: 1,
+      recoveryChecks: 3,
+      ffmpegAvailable: true,
+    });
+    state = runCheckCycle(state, { segments: ["a.ts"] });
+    state = runCheckCycle(state, { segments: ["a.ts"] }); // → L2
+    state = runCheckCycle(state, { segments: ["a.ts"], segmentHash: "aaa" }); // match 1
+    state = runCheckCycle(state, { segments: ["a.ts"], segmentHash: "aaa" }); // match 2
+    state = runCheckCycle(state, { segments: ["a.ts"], segmentHash: "bbb" }); // different → reset
+    expect(state.level).toBe("L2_CHECK");
+    expect(state.l2MatchCount).toBe(0);
+  });
+
+  it("handles missing segmentHash gracefully in L2 (no escalation)", () => {
+    let state = createEscalationState({
+      l1StaleChecks: 1,
+      l2MatchChecks: 1,
+      l3MatchChecks: 1,
+      recoveryChecks: 3,
+      ffmpegAvailable: true,
+    });
+    state = runCheckCycle(state, { segments: ["a.ts"] });
+    state = runCheckCycle(state, { segments: ["a.ts"] }); // → L2
+    state = runCheckCycle(state, { segments: ["a.ts"] }); // no segmentHash
+    expect(state.level).toBe("L2_CHECK"); // stays, no crash
+  });
+});
