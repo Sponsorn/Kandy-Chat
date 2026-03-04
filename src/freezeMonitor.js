@@ -127,6 +127,123 @@ export function parseMediaPlaylist(text) {
   return { mediaSequence, segments };
 }
 
+export function createEscalationState({
+  l1StaleChecks,
+  l2MatchChecks,
+  l3MatchChecks,
+  recoveryChecks,
+  ffmpegAvailable,
+}) {
+  return {
+    // Config
+    l1StaleChecks,
+    l2MatchChecks,
+    l3MatchChecks,
+    recoveryChecks,
+    ffmpegAvailable,
+    // State
+    level: "NORMAL", // NORMAL | L2_CHECK | L3_CHECK
+    frozen: false,
+    prevSegments: null,
+    prevSegmentHash: null,
+    prevFrameHash: null,
+    l1StaleCount: 0,
+    l2MatchCount: 0,
+    l3MatchCount: 0,
+    motionChecks: 0,
+  };
+}
+
+export function runCheckCycle(state, data, callbacks) {
+  const s = { ...state };
+  const segmentsKey = data.segments.join(",");
+  const prevKey = s.prevSegments ? s.prevSegments.join(",") : null;
+  const segmentsChanged = prevKey !== null && segmentsKey !== prevKey;
+  s.prevSegments = data.segments;
+
+  // --- Recovery path (when frozen) ---
+  if (s.frozen) {
+    if (segmentsChanged) {
+      s.motionChecks += 1;
+      if (s.motionChecks >= s.recoveryChecks) {
+        s.frozen = false;
+        s.motionChecks = 0;
+        s.level = "NORMAL";
+        s.l1StaleCount = 0;
+        s.l2MatchCount = 0;
+        s.l3MatchCount = 0;
+        s.prevSegmentHash = null;
+        s.prevFrameHash = null;
+        if (callbacks) callbacks.onRecover = true;
+      }
+    } else {
+      s.motionChecks = 0;
+    }
+    return s;
+  }
+
+  // --- Normal detection path ---
+  if (segmentsChanged || prevKey === null) {
+    // Segments changed (or first check) — reset everything
+    s.level = "NORMAL";
+    s.l1StaleCount = 0;
+    s.l2MatchCount = 0;
+    s.l3MatchCount = 0;
+    s.prevSegmentHash = null;
+    s.prevFrameHash = null;
+    return s;
+  }
+
+  // Segments are stale
+  if (s.level === "NORMAL") {
+    s.l1StaleCount += 1;
+    if (s.l1StaleCount >= s.l1StaleChecks) {
+      s.level = "L2_CHECK";
+    }
+    return s;
+  }
+
+  if (s.level === "L2_CHECK") {
+    if (data.segmentHash != null) {
+      if (s.prevSegmentHash == null || data.segmentHash === s.prevSegmentHash) {
+        s.l2MatchCount += 1;
+      } else {
+        s.l2MatchCount = 0;
+      }
+      s.prevSegmentHash = data.segmentHash;
+
+      if (s.l2MatchCount >= s.l2MatchChecks) {
+        if (s.ffmpegAvailable) {
+          s.level = "L3_CHECK";
+        } else {
+          s.frozen = true;
+          if (callbacks) callbacks.onFreeze = true;
+        }
+      }
+    }
+    return s;
+  }
+
+  if (s.level === "L3_CHECK") {
+    if (data.frameHash != null) {
+      if (s.prevFrameHash == null || data.frameHash === s.prevFrameHash) {
+        s.l3MatchCount += 1;
+      } else {
+        s.l3MatchCount = 0;
+      }
+      s.prevFrameHash = data.frameHash;
+
+      if (s.l3MatchCount >= s.l3MatchChecks) {
+        s.frozen = true;
+        if (callbacks) callbacks.onFreeze = true;
+      }
+    }
+    return s;
+  }
+
+  return s;
+}
+
 const PLAYBACK_ACCESS_QUERY = {
   operationName: "PlaybackAccessToken",
   variables: {
