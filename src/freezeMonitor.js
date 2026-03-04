@@ -132,7 +132,7 @@ export function createEscalationState({
   l2MatchChecks,
   l3MatchChecks,
   recoveryChecks,
-  ffmpegAvailable,
+  ffmpegAvailable
 }) {
   return {
     // Config
@@ -150,7 +150,7 @@ export function createEscalationState({
     l1StaleCount: 0,
     l2MatchCount: 0,
     l3MatchCount: 0,
-    motionChecks: 0,
+    motionChecks: 0
   };
 }
 
@@ -360,8 +360,7 @@ export async function startFreezeMonitor(
   const l3MatchChecks = parseIntEnv(env.FREEZE_L3_MATCH_CHECKS, 1);
 
   let nextRefreshAt = 0;
-  const effectiveWaitForOnline =
-    waitForOnline || createPollingWait(pollWhenOfflineSeconds, logger);
+  const effectiveWaitForOnline = waitForOnline || createPollingWait(pollWhenOfflineSeconds, logger);
 
   if (!hlsUrl && !channel) {
     logger?.warn("Freeze monitor disabled: FREEZE_HLS_URL or FREEZE_CHANNEL required");
@@ -382,7 +381,7 @@ export async function startFreezeMonitor(
     l2MatchChecks,
     l3MatchChecks,
     recoveryChecks,
-    ffmpegAvailable,
+    ffmpegAvailable
   });
   let mediaPlaylistUrl = null;
   let offline = false;
@@ -454,7 +453,7 @@ export async function startFreezeMonitor(
           l2MatchChecks,
           l3MatchChecks,
           recoveryChecks,
-          ffmpegAvailable,
+          ffmpegAvailable
         });
         onOnline?.();
       }

@@ -3,19 +3,19 @@ import {
   parseMasterPlaylist,
   parseMediaPlaylist,
   createEscalationState,
-  runCheckCycle,
+  runCheckCycle
 } from "../src/freezeMonitor.js";
 
 describe("parseMasterPlaylist", () => {
   it("returns the lowest bandwidth variant URL", () => {
     const m3u8 = [
       "#EXTM3U",
-      '#EXT-X-STREAM-INF:BANDWIDTH=6000000,RESOLUTION=1920x1080',
+      "#EXT-X-STREAM-INF:BANDWIDTH=6000000,RESOLUTION=1920x1080",
       "https://video-edge/source.m3u8",
-      '#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360',
+      "#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360",
       "https://video-edge/360p.m3u8",
-      '#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720',
-      "https://video-edge/720p.m3u8",
+      "#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720",
+      "https://video-edge/720p.m3u8"
     ].join("\n");
 
     expect(parseMasterPlaylist(m3u8)).toBe("https://video-edge/360p.m3u8");
@@ -24,8 +24,8 @@ describe("parseMasterPlaylist", () => {
   it("returns the only variant when there is just one", () => {
     const m3u8 = [
       "#EXTM3U",
-      '#EXT-X-STREAM-INF:BANDWIDTH=3000000',
-      "https://video-edge/only.m3u8",
+      "#EXT-X-STREAM-INF:BANDWIDTH=3000000",
+      "https://video-edge/only.m3u8"
     ].join("\n");
 
     expect(parseMasterPlaylist(m3u8)).toBe("https://video-edge/only.m3u8");
@@ -40,12 +40,12 @@ describe("parseMasterPlaylist", () => {
     const m3u8 = [
       "#EXTM3U",
       '#EXT-X-MEDIA:TYPE=VIDEO,GROUP-ID="chunked"',
-      '#EXT-X-STREAM-INF:BANDWIDTH=6000000,RESOLUTION=1920x1080',
+      "#EXT-X-STREAM-INF:BANDWIDTH=6000000,RESOLUTION=1920x1080",
       "https://video-edge/source.m3u8",
       '#EXT-X-STREAM-INF:BANDWIDTH=200000,VIDEO="audio_only"',
       "https://video-edge/audio.m3u8",
-      '#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360',
-      "https://video-edge/360p.m3u8",
+      "#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360",
+      "https://video-edge/360p.m3u8"
     ].join("\n");
 
     expect(parseMasterPlaylist(m3u8)).toBe("https://video-edge/360p.m3u8");
@@ -63,7 +63,7 @@ describe("parseMediaPlaylist", () => {
       "#EXTINF:2.000,",
       "https://video-edge/seg101.ts",
       "#EXTINF:2.000,",
-      "https://video-edge/seg102.ts",
+      "https://video-edge/seg102.ts"
     ].join("\n");
 
     const result = parseMediaPlaylist(m3u8);
@@ -71,16 +71,12 @@ describe("parseMediaPlaylist", () => {
     expect(result.segments).toEqual([
       "https://video-edge/seg100.ts",
       "https://video-edge/seg101.ts",
-      "https://video-edge/seg102.ts",
+      "https://video-edge/seg102.ts"
     ]);
   });
 
   it("defaults mediaSequence to 0 if missing", () => {
-    const m3u8 = [
-      "#EXTM3U",
-      "#EXTINF:2.000,",
-      "https://video-edge/seg0.ts",
-    ].join("\n");
+    const m3u8 = ["#EXTM3U", "#EXTINF:2.000,", "https://video-edge/seg0.ts"].join("\n");
 
     const result = parseMediaPlaylist(m3u8);
     expect(result.mediaSequence).toBe(0);
@@ -100,7 +96,7 @@ describe("escalation logic", () => {
     l2MatchChecks: 2,
     l3MatchChecks: 1,
     recoveryChecks: 3,
-    ffmpegAvailable: true,
+    ffmpegAvailable: true
   };
 
   function makeState(overrides = {}) {
@@ -173,7 +169,7 @@ describe("escalation logic", () => {
       l1StaleChecks: 1,
       l2MatchChecks: 1,
       ffmpegAvailable: false,
-      recoveryChecks: 2,
+      recoveryChecks: 2
     });
     const callbacks = { onFreeze: false, onRecover: false };
     state = runCheckCycle(state, { segments: ["a.ts"] });
@@ -192,7 +188,7 @@ describe("escalation logic", () => {
       l1StaleChecks: 1,
       l2MatchChecks: 1,
       ffmpegAvailable: false,
-      recoveryChecks: 3,
+      recoveryChecks: 3
     });
     const callbacks = { onFreeze: false, onRecover: false };
     state = runCheckCycle(state, { segments: ["a.ts"] });
@@ -213,7 +209,7 @@ describe("L2 edge cases", () => {
       l2MatchChecks: 3,
       l3MatchChecks: 1,
       recoveryChecks: 3,
-      ffmpegAvailable: true,
+      ffmpegAvailable: true
     });
     state = runCheckCycle(state, { segments: ["a.ts"] });
     state = runCheckCycle(state, { segments: ["a.ts"] }); // → L2
@@ -230,7 +226,7 @@ describe("L2 edge cases", () => {
       l2MatchChecks: 1,
       l3MatchChecks: 1,
       recoveryChecks: 3,
-      ffmpegAvailable: true,
+      ffmpegAvailable: true
     });
     state = runCheckCycle(state, { segments: ["a.ts"] });
     state = runCheckCycle(state, { segments: ["a.ts"] }); // → L2
