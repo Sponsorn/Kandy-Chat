@@ -91,6 +91,20 @@ export function buildDisabledV2Message(formattedText, matchedWord, actionLabel) 
 }
 
 /**
+ * Build an expired V2 message (buttons removed after relay cache TTL)
+ */
+export function buildExpiredV2Message(formattedText) {
+  const container = new ContainerBuilder()
+    .setAccentColor(0xed4245)
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(formattedText));
+
+  return {
+    components: [container],
+    flags: MessageFlags.IsComponentsV2
+  };
+}
+
+/**
  * Build a deleted V2 message (strikethrough text)
  */
 export function buildDeletedV2Message(formattedText) {

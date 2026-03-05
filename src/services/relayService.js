@@ -1,5 +1,9 @@
 import botState from "../state/BotState.js";
-import { buildNormalV2Message, buildSuspiciousV2Message } from "./messageBuilder.js";
+import {
+  buildNormalV2Message,
+  buildSuspiciousV2Message,
+  buildExpiredV2Message
+} from "./messageBuilder.js";
 
 const RELAY_CACHE_TTL_MS = 1 * 60 * 60 * 1000; // 1 hour
 
@@ -213,9 +217,26 @@ export function recordRelayMapping(
     formattedText
   );
 
-  // Schedule removal after TTL
-  setTimeout(() => {
+  // Schedule removal after TTL — also strip moderation buttons if present
+  setTimeout(async () => {
     botState.removeRelayMapping(twitchMessageId, discordMessage.id);
+
+    if (!botState.config.moderationUseButtons) return;
+    try {
+      const channel = await botState.discordClient?.channels.fetch(discordMessage.channelId);
+      if (!channel) return;
+      const msg = await channel.messages.fetch(discordMessage.id);
+      // Check if V2 container has action row components (buttons)
+      const container = msg.components?.[0]?.data || msg.components?.[0];
+      const hasButtons = (container?.components || []).some(
+        (c) => c.type === 1 && c.components?.some((btn) => btn.type === 2)
+      );
+      if (hasButtons) {
+        await msg.edit(buildExpiredV2Message(formattedText));
+      }
+    } catch {
+      // Message may have been deleted — ignore
+    }
   }, RELAY_CACHE_TTL_MS);
 }
 
