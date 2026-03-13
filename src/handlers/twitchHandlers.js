@@ -7,6 +7,7 @@ import {
   relaySystemMessage
 } from "../services/relayService.js";
 import { buildDeletedV2Message } from "../services/messageBuilder.js";
+import { checkAutoBan, executeAutoBan } from "../services/autoBanService.js";
 
 const GIFT_SUB_BATCH_MS = 1500;
 
@@ -208,7 +209,7 @@ function handleTwitchSubGift(channel, username, streakMonths, recipient, methods
 /**
  * Handle incoming Twitch chat message
  */
-function handleTwitchMessage(channel, tags, message, self, env, discordChannelId) {
+async function handleTwitchMessage(channel, tags, message, self, env, discordChannelId, twitchAPIClient) {
   if (self) return;
 
   const username = tags["display-name"] || tags.username || "unknown";
@@ -268,6 +269,27 @@ function handleTwitchMessage(channel, tags, message, self, env, discordChannelId
   ) {
     botState.recordFilteredMessage();
     return;
+  }
+
+  // Auto-ban check (after filter, before relay)
+  const autoBanResult = checkAutoBan(normalized, tags);
+  if (autoBanResult.matched) {
+    try {
+      const banResult = await executeAutoBan(
+        username,
+        normalized,
+        channel,
+        tags,
+        discordChannelId,
+        autoBanResult.rule,
+        twitchAPIClient
+      );
+      if (banResult?.success) return;
+      // Ban failed — fall through to normal relay
+    } catch (error) {
+      console.error("[AutoBan] executeAutoBan failed:", error);
+      // Fall through to normal relay
+    }
   }
 
   relayToDiscord(username, normalized, channel, discordChannelId)
@@ -349,9 +371,11 @@ export function createTwitchClient(oauthToken, username) {
 /**
  * Attach event handlers to Twitch client
  */
-export function attachTwitchHandlers(client, env, discordChannelId) {
+export function attachTwitchHandlers(client, env, discordChannelId, twitchAPIClient) {
   client.on("message", (channel, tags, message, self) => {
-    handleTwitchMessage(channel, tags, message, self, env, discordChannelId);
+    handleTwitchMessage(channel, tags, message, self, env, discordChannelId, twitchAPIClient).catch(
+      (error) => console.error("[TwitchHandler] Unhandled error:", error)
+    );
   });
 
   client.on("messagedeleted", handleTwitchMessageDeleted);
@@ -386,7 +410,7 @@ export function attachTwitchHandlers(client, env, discordChannelId) {
 /**
  * Connect to Twitch IRC
  */
-export async function connectTwitch(oauthToken, username, env, discordChannelId) {
+export async function connectTwitch(oauthToken, username, env, discordChannelId, twitchAPIClient) {
   if (botState.twitchClient) {
     try {
       botState.twitchClient.removeAllListeners();
@@ -397,7 +421,7 @@ export async function connectTwitch(oauthToken, username, env, discordChannelId)
   }
 
   const client = createTwitchClient(oauthToken, username);
-  attachTwitchHandlers(client, env, discordChannelId);
+  attachTwitchHandlers(client, env, discordChannelId, twitchAPIClient);
   await client.connect();
 
   botState.setTwitchClient(client);
