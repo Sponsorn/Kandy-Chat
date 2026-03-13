@@ -14,6 +14,7 @@ import { Client, GatewayIntentBits, Partials } from "discord.js";
 import { validateConfigOrThrow } from "./config/configValidator.js";
 import { buildFilters, normalizeMessage } from "./filters.js";
 import { loadBlacklist } from "./blacklistStore.js";
+import { loadAutoBanRules } from "./autoBanStore.js";
 import { loadConfig } from "./configStore.js";
 import { saveMessage, scheduleCleanup, markMessageRelayed } from "./chatHistoryStore.js";
 import { startFreezeMonitor } from "./freezeMonitor.js";
@@ -22,7 +23,11 @@ import { TwitchAPIClient } from "./api/TwitchAPIClient.js";
 import botState from "./state/BotState.js";
 import { setupDiscordHandlers } from "./handlers/discordHandlers.js";
 import { connectTwitch } from "./handlers/twitchHandlers.js";
-import { relaySystemMessage, startRelayCleanup } from "./services/relayService.js";
+import {
+  relaySystemMessage,
+  startRelayCleanup,
+  stripExpiredButtons
+} from "./services/relayService.js";
 import {
   refreshAndApplyTwitchToken,
   scheduleTokenRefresh,
@@ -167,6 +172,17 @@ async function hydrateRuntimeConfig() {
   }
 }
 
+// Hydrate auto-ban rules from storage
+async function hydrateAutoBanRules() {
+  try {
+    const rules = await loadAutoBanRules();
+    botState.setAutoBanRules(rules);
+    console.log(`Loaded ${rules.length} auto-ban rule(s)`);
+  } catch (error) {
+    console.warn("Failed to load auto-ban rules", error);
+  }
+}
+
 // Create relay system message wrapper
 function createRelaySystemMessage(channelId) {
   return (message) => relaySystemMessage(message, channelId);
@@ -210,6 +226,7 @@ async function start() {
   await discordClient.login(DISCORD_TOKEN);
   await hydrateBlacklist();
   await hydrateRuntimeConfig();
+  await hydrateAutoBanRules();
 
   // Wire chat messages to persistent storage
   botState.on("chat:message", (messageData) => {
@@ -234,7 +251,7 @@ async function start() {
     );
   }
 
-  await connectTwitch(oauthToken, TWITCH_USERNAME, process.env, DISCORD_CHANNEL_ID);
+  await connectTwitch(oauthToken, TWITCH_USERNAME, process.env, DISCORD_CHANNEL_ID, twitchAPIClient);
   console.log("Relay online: Twitch chat -> Discord channel");
 
   // Record bot start in audit log
@@ -250,6 +267,11 @@ async function start() {
 
   // Start relay cleanup interval
   startRelayCleanup();
+
+  // Strip buttons from expired messages that survived a restart
+  stripExpiredButtons().catch((err) =>
+    console.warn("Failed to strip expired buttons on startup:", err.message)
+  );
 
   // Setup EventSub with freeze monitor integration
   const lastOnlineTimestamp = new Map(); // channel -> Date.now() of last stream.online
@@ -524,7 +546,8 @@ async function start() {
           newTokenInfo.oauthToken,
           TWITCH_USERNAME,
           process.env,
-          DISCORD_CHANNEL_ID
+          DISCORD_CHANNEL_ID,
+          twitchAPIClient
         );
       }
     });
