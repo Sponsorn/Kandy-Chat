@@ -209,7 +209,15 @@ function handleTwitchSubGift(channel, username, streakMonths, recipient, methods
 /**
  * Handle incoming Twitch chat message
  */
-async function handleTwitchMessage(channel, tags, message, self, env, discordChannelId, twitchAPIClient) {
+async function handleTwitchMessage(
+  channel,
+  tags,
+  message,
+  self,
+  env,
+  discordChannelId,
+  twitchAPIClient
+) {
   if (self) return;
 
   const username = tags["display-name"] || tags.username || "unknown";

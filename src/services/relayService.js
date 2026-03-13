@@ -222,12 +222,16 @@ export async function stripExpiredButtons() {
             if (td.content?.includes("First-time chatter")) isFirstMsg = true;
           }
           const expiredText =
-            textComponents[0]?.data?.content || textComponents[0]?.content || "(message unavailable)";
+            textComponents[0]?.data?.content ||
+            textComponents[0]?.content ||
+            "(message unavailable)";
           await msg.edit(buildExpiredAutoBanV2Message(expiredText, matchedPattern, isFirstMsg));
         } else {
           const textComponents = (container?.components || []).filter((c) => c.type === 10);
           const expiredText =
-            textComponents[0]?.data?.content || textComponents[0]?.content || "(message unavailable)";
+            textComponents[0]?.data?.content ||
+            textComponents[0]?.content ||
+            "(message unavailable)";
           await msg.edit(buildExpiredV2Message(expiredText));
         }
         stripped++;

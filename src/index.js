@@ -251,7 +251,13 @@ async function start() {
     );
   }
 
-  await connectTwitch(oauthToken, TWITCH_USERNAME, process.env, DISCORD_CHANNEL_ID, twitchAPIClient);
+  await connectTwitch(
+    oauthToken,
+    TWITCH_USERNAME,
+    process.env,
+    DISCORD_CHANNEL_ID,
+    twitchAPIClient
+  );
   console.log("Relay online: Twitch chat -> Discord channel");
 
   // Record bot start in audit log

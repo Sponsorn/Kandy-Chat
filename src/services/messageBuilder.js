@@ -128,15 +128,10 @@ export function buildAutoBanV2Message(formattedText, matchedPattern, isFirstMsg)
     .setAccentColor(0xed4245)
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(formattedText))
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# \u{1F916} ${label}`))
-    .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`-# Matched: ${matchedPattern}`)
-    )
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# Matched: ${matchedPattern}`))
     .addActionRowComponents(
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId("mod-unban")
-          .setLabel("Unban")
-          .setStyle(ButtonStyle.Success)
+        new ButtonBuilder().setCustomId("mod-unban").setLabel("Unban").setStyle(ButtonStyle.Success)
       )
     );
 
@@ -156,9 +151,7 @@ export function buildUnbannedV2Message(formattedText, matchedPattern, isFirstMsg
     .setAccentColor(0xed4245)
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(formattedText))
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# \u{1F916} ${label}`))
-    .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`-# Matched: ${matchedPattern}`)
-    )
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# Matched: ${matchedPattern}`))
     .addActionRowComponents(
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -188,9 +181,7 @@ export function buildExpiredAutoBanV2Message(formattedText, matchedPattern, isFi
     .setAccentColor(0xed4245)
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(formattedText))
     .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# \u{1F916} ${label}`))
-    .addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`-# Matched: ${matchedPattern}`)
-    );
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# Matched: ${matchedPattern}`));
 
   return {
     components: [container],
