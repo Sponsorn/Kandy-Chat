@@ -81,6 +81,10 @@ class BotState extends EventEmitter {
     this.modActions = [];
     this.maxModActions = 500;
 
+    // Auto-ban rules (loaded from data/auto-ban-rules.json)
+    this.autoBanRules = [];
+    this.autoBanCompiledRegexes = new Map(); // rule.id -> RegExp
+
     // Offline message tracking for edit-on-recovery
     this.offlineMessageIds = new Map(); // channel -> { messageId, channelId, originalContent }
 
@@ -764,6 +768,34 @@ class BotState extends EventEmitter {
   }
 
   /**
+   * Set auto-ban rules and pre-compile regex patterns
+   * @param {Array} rules - Array of rule objects from autoBanStore
+   */
+  setAutoBanRules(rules) {
+    this.autoBanRules = rules;
+    this.autoBanCompiledRegexes.clear();
+    for (const rule of rules) {
+      if (rule.isRegex) {
+        try {
+          this.autoBanCompiledRegexes.set(rule.id, new RegExp(rule.pattern, rule.flags || "i"));
+        } catch (error) {
+          console.warn(`Invalid auto-ban regex for rule ${rule.id}: ${error.message}`);
+        }
+      }
+    }
+    this.emit("autoBanRules:updated", { rules: this.autoBanRules });
+  }
+
+  /**
+   * Get compiled regex for an auto-ban rule
+   * @param {string} ruleId - Rule ID
+   * @returns {RegExp|null}
+   */
+  getAutoBanRegex(ruleId) {
+    return this.autoBanCompiledRegexes.get(ruleId) || null;
+  }
+
+  /**
    * Get snapshot for dashboard
    */
   getSnapshot() {
@@ -784,6 +816,7 @@ class BotState extends EventEmitter {
       },
       blacklistCount: this.runtimeBlacklist.size,
       relayMapSize: this.relayMessageMap.size,
+      autoBanRulesCount: this.autoBanRules.length,
       runtimeConfig: { ...this.runtimeConfig },
       chatStats: Object.fromEntries(
         Object.entries(this.chatStats).map(([ch, _s]) => [ch, this.getChatStats(ch)])
