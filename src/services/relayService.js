@@ -2,7 +2,8 @@ import botState from "../state/BotState.js";
 import {
   buildNormalV2Message,
   buildSuspiciousV2Message,
-  buildExpiredV2Message
+  buildExpiredV2Message,
+  buildExpiredAutoBanV2Message
 } from "./messageBuilder.js";
 
 const RELAY_CACHE_TTL_MS = 1 * 60 * 60 * 1000; // 1 hour
@@ -181,6 +182,67 @@ export async function relaySystemMessage(message, discordChannelId) {
 }
 
 /**
+ * On startup, scan recent messages in relay channels and strip buttons from expired ones.
+ * This covers messages sent before a restart whose setTimeout was lost.
+ */
+export async function stripExpiredButtons() {
+  if (!botState.config.moderationUseButtons) return;
+
+  const channels = botState.discordChannels;
+  if (!channels.length) return;
+
+  let stripped = 0;
+  for (const channel of channels) {
+    if (!channel?.isTextBased()) continue;
+    try {
+      const messages = await channel.messages.fetch({ limit: 100 });
+      const now = Date.now();
+      for (const msg of messages.values()) {
+        if (msg.author.id !== botState.discordClient?.user?.id) continue;
+        if (now - msg.createdTimestamp < RELAY_CACHE_TTL_MS) continue;
+
+        const container = msg.components?.[0];
+        const hasUnbanButton = (container?.components || []).some(
+          (c) =>
+            c.type === 1 &&
+            c.components?.some((btn) => btn.type === 2 && btn.custom_id === "mod-unban")
+        );
+        const hasButtons = (container?.components || []).some(
+          (c) => c.type === 1 && c.components?.some((btn) => btn.type === 2)
+        );
+        if (!hasUnbanButton && !hasButtons) continue;
+
+        if (hasUnbanButton) {
+          const textComponents = (container?.components || []).filter((c) => c.type === 10);
+          let matchedPattern = "unknown";
+          let isFirstMsg = false;
+          for (const td of textComponents) {
+            const patternMatch = td.content?.match(/Matched: (.+)/);
+            if (patternMatch) matchedPattern = patternMatch[1];
+            if (td.content?.includes("First-time chatter")) isFirstMsg = true;
+          }
+          const expiredText =
+            textComponents[0]?.data?.content || textComponents[0]?.content || "(message unavailable)";
+          await msg.edit(buildExpiredAutoBanV2Message(expiredText, matchedPattern, isFirstMsg));
+        } else {
+          const textComponents = (container?.components || []).filter((c) => c.type === 10);
+          const expiredText =
+            textComponents[0]?.data?.content || textComponents[0]?.content || "(message unavailable)";
+          await msg.edit(buildExpiredV2Message(expiredText));
+        }
+        stripped++;
+      }
+    } catch (err) {
+      console.warn(`Failed to scan channel ${channel.id} for expired buttons:`, err.message);
+    }
+  }
+
+  if (stripped > 0) {
+    console.log(`Stripped buttons from ${stripped} expired message(s) on startup`);
+  }
+}
+
+/**
  * Start periodic cleanup of expired relay mappings
  */
 export function startRelayCleanup(intervalMs = 15 * 60 * 1000) {
@@ -226,12 +288,29 @@ export function recordRelayMapping(
       const channel = await botState.discordClient?.channels.fetch(discordMessage.channelId);
       if (!channel) return;
       const msg = await channel.messages.fetch(discordMessage.id);
-      // Check if V2 container has action row components (buttons)
-      const container = msg.components?.[0]?.data || msg.components?.[0];
+      // Use instance .components (not .data.components — ContainerComponent destructures it out)
+      const container = msg.components?.[0];
+      // Check for unban button (auto-ban card) vs regular mod buttons
+      const hasUnbanButton = (container?.components || []).some(
+        (c) =>
+          c.type === 1 &&
+          c.components?.some((btn) => btn.type === 2 && btn.custom_id === "mod-unban")
+      );
       const hasButtons = (container?.components || []).some(
         (c) => c.type === 1 && c.components?.some((btn) => btn.type === 2)
       );
-      if (hasButtons) {
+
+      if (hasUnbanButton) {
+        const textComponents = (container?.components || []).filter((c) => c.type === 10);
+        let matchedPattern = "unknown";
+        let isFirstMsg = false;
+        for (const td of textComponents) {
+          const patternMatch = td.content?.match(/Matched: (.+)/);
+          if (patternMatch) matchedPattern = patternMatch[1];
+          if (td.content?.includes("First-time chatter")) isFirstMsg = true;
+        }
+        await msg.edit(buildExpiredAutoBanV2Message(formattedText, matchedPattern, isFirstMsg));
+      } else if (hasButtons) {
         await msg.edit(buildExpiredV2Message(formattedText));
       }
     } catch {
