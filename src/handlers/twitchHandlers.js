@@ -1,11 +1,7 @@
 import tmi from "tmi.js";
 import botState from "../state/BotState.js";
 import { normalizeMessage, shouldBlockMessage } from "../filters.js";
-import {
-  relayToDiscord,
-  recordRelayMapping,
-  relaySystemMessage
-} from "../services/relayService.js";
+import { relayToDiscord, recordRelayMapping } from "../services/relayService.js";
 import { buildDeletedV2Message } from "../services/messageBuilder.js";
 import { checkAutoBan, executeAutoBan } from "../services/autoBanService.js";
 

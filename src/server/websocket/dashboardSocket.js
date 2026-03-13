@@ -212,6 +212,10 @@ export function createDashboardSocket(server) {
     broadcast("config:update", { type: "blacklist", ...data }, Permissions.MODERATOR);
   });
 
+  botState.on("autoBanRules:updated", (data) => {
+    broadcast("config:update", { type: "autoBanRules", ...data }, Permissions.MODERATOR);
+  });
+
   botState.on("filters:updated", () => {
     broadcast("config:update", { type: "filters" }, Permissions.MODERATOR);
   });
