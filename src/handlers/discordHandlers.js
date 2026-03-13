@@ -1,7 +1,7 @@
 import botState from "../state/BotState.js";
 import { handleSlashCommand } from "../commands/commandRegistry.js";
 import { hasPrivilegedRole } from "../utils/permissions.js";
-import { buildDisabledV2Message } from "../services/messageBuilder.js";
+import { buildDisabledV2Message, buildUnbannedV2Message } from "../services/messageBuilder.js";
 
 /**
  * Resolve which moderation action to take based on reaction emoji
@@ -291,9 +291,121 @@ async function handleButtonInteraction(interaction, twitchAPIClient) {
 }
 
 /**
+ * Handle unban button interaction (from auto-ban cards)
+ */
+async function handleUnbanInteraction(interaction, twitchAPIClient) {
+  const guild = interaction.guild;
+  if (!guild) return;
+
+  let member;
+  try {
+    member = await guild.members.fetch(interaction.user.id);
+  } catch {
+    return;
+  }
+
+  if (!hasPrivilegedRole(member)) {
+    await interaction.reply({ content: "You don't have permission to do that.", ephemeral: true });
+    return;
+  }
+
+  const relay = botState.getRelayByDiscordId(interaction.message.id);
+  if (!relay || !botState.twitchClient) {
+    await interaction.reply({
+      content: "This message is no longer tracked (relay entry expired).",
+      ephemeral: true
+    });
+    return;
+  }
+
+  if (!relay.twitchUsername || !relay.twitchChannel) {
+    await interaction.reply({
+      content: "Invalid relay entry — missing required data.",
+      ephemeral: true
+    });
+    return;
+  }
+
+  const channelName = relay.twitchChannel.startsWith("#")
+    ? relay.twitchChannel
+    : `#${relay.twitchChannel}`;
+
+  await interaction.deferUpdate();
+
+  try {
+    await twitchAPIClient.unbanUser(channelName, relay.twitchUsername);
+
+    botState.recordModerationAction(
+      "unban",
+      interaction.user.username,
+      relay.twitchUsername,
+      { channel: channelName },
+      "discord",
+      "success"
+    );
+
+    // Extract matchedPattern and isFirstMsg from card text
+    const components = interaction.message.components;
+    const json = components?.[0]?.data || components?.[0];
+    const textComponents = (json?.components || []).filter((c) => c.type === 10);
+
+    let matchedPattern = "unknown";
+    let isFirstMsg = false;
+    for (const td of textComponents) {
+      const patternMatch = td.content?.match(/Matched: (.+)/);
+      if (patternMatch) matchedPattern = patternMatch[1];
+      if (td.content?.includes("First-time chatter")) isFirstMsg = true;
+    }
+
+    await interaction.editReply(
+      buildUnbannedV2Message(
+        relay.formattedText || "(message unavailable)",
+        matchedPattern,
+        isFirstMsg,
+        interaction.user.username
+      )
+    );
+
+    try {
+      await interaction.channel.send(
+        `**${interaction.user.username}** unbanned **${relay.twitchUsername}**`
+      );
+    } catch (sendError) {
+      console.warn("Failed to send unban action message", sendError);
+    }
+  } catch (error) {
+    console.warn("Failed to unban user via button", error);
+
+    botState.recordModerationAction(
+      "unban",
+      interaction.user.username,
+      relay.twitchUsername,
+      { channel: channelName },
+      "discord",
+      "failed",
+      error.message
+    );
+
+    try {
+      await interaction.followUp({
+        content: `Failed to unban: ${error.message}`,
+        ephemeral: true
+      });
+    } catch {
+      // ignore follow-up failure
+    }
+  }
+}
+
+/**
  * Handle slash command interaction
  */
 export async function handleInteraction(interaction, dependencies) {
+  if (interaction.isButton() && interaction.customId === "mod-unban") {
+    await handleUnbanInteraction(interaction, dependencies.twitchAPIClient);
+    return;
+  }
+
   if (interaction.isButton() && interaction.customId.startsWith("mod-")) {
     await handleButtonInteraction(interaction, dependencies.twitchAPIClient);
     return;
