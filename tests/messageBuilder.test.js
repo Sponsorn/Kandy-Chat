@@ -3,7 +3,10 @@ import {
   buildNormalV2Message,
   buildSuspiciousV2Message,
   buildDisabledV2Message,
-  buildDeletedV2Message
+  buildDeletedV2Message,
+  buildAutoBanV2Message,
+  buildUnbannedV2Message,
+  buildExpiredAutoBanV2Message
 } from "../src/services/messageBuilder.js";
 import { MessageFlags } from "discord.js";
 
@@ -106,5 +109,61 @@ describe("buildDeletedV2Message", () => {
   it("returns V2 flag", () => {
     const result = buildDeletedV2Message("text");
     expect(result.flags).toBe(MessageFlags.IsComponentsV2);
+  });
+});
+
+describe("buildAutoBanV2Message", () => {
+  it("builds card with unban button and first-msg label", () => {
+    const result = buildAutoBanV2Message("formatted text", "\\w+\\.com", true);
+    expect(result.flags).toBe(MessageFlags.IsComponentsV2);
+    expect(result.components).toHaveLength(1);
+
+    const container = result.components[0];
+    const json = container.toJSON();
+    const textComponents = json.components.filter((c) => c.type === 10);
+    expect(textComponents.length).toBeGreaterThanOrEqual(3);
+    expect(textComponents[1].content).toContain("Auto-banned");
+    expect(textComponents[1].content).toContain("First-time chatter");
+    expect(textComponents[2].content).toContain("\\w+\\.com");
+
+    const actionRow = json.components.find((c) => c.type === 1);
+    expect(actionRow).toBeDefined();
+    const button = actionRow.components[0];
+    expect(button.custom_id).toBe("mod-unban");
+    expect(button.label).toBe("Unban");
+    expect(button.style).toBe(3); // ButtonStyle.Success
+  });
+
+  it("omits first-time chatter label when isFirstMsg is false", () => {
+    const result = buildAutoBanV2Message("text", "pattern", false);
+    const json = result.components[0].toJSON();
+    const textComponents = json.components.filter((c) => c.type === 10);
+    expect(textComponents[1].content).toContain("Auto-banned");
+    expect(textComponents[1].content).not.toContain("First-time chatter");
+  });
+});
+
+describe("buildUnbannedV2Message", () => {
+  it("builds card with disabled unban button and unbanned label", () => {
+    const result = buildUnbannedV2Message("text", "pattern", true, "modname");
+    const json = result.components[0].toJSON();
+
+    const actionRow = json.components.find((c) => c.type === 1);
+    const button = actionRow.components[0];
+    expect(button.disabled).toBe(true);
+
+    const textComponents = json.components.filter((c) => c.type === 10);
+    const lastText = textComponents[textComponents.length - 1].content;
+    expect(lastText).toContain("Unbanned by modname");
+  });
+});
+
+describe("buildExpiredAutoBanV2Message", () => {
+  it("builds card without unban button", () => {
+    const result = buildExpiredAutoBanV2Message("text", "pattern", true);
+    const json = result.components[0].toJSON();
+
+    const actionRow = json.components.find((c) => c.type === 1);
+    expect(actionRow).toBeUndefined();
   });
 });

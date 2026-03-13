@@ -117,3 +117,83 @@ export function buildDeletedV2Message(formattedText) {
     flags: MessageFlags.IsComponentsV2
   };
 }
+
+/**
+ * Build an auto-ban V2 message with unban button
+ */
+export function buildAutoBanV2Message(formattedText, matchedPattern, isFirstMsg) {
+  const label = isFirstMsg ? "Auto-banned \u00b7 First-time chatter" : "Auto-banned";
+
+  const container = new ContainerBuilder()
+    .setAccentColor(0xed4245)
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(formattedText))
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# \u{1F916} ${label}`))
+    .addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`-# Matched: ${matchedPattern}`)
+    )
+    .addActionRowComponents(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("mod-unban")
+          .setLabel("Unban")
+          .setStyle(ButtonStyle.Success)
+      )
+    );
+
+  return {
+    components: [container],
+    flags: MessageFlags.IsComponentsV2
+  };
+}
+
+/**
+ * Build an unbanned V2 message (after mod clicks Unban)
+ */
+export function buildUnbannedV2Message(formattedText, matchedPattern, isFirstMsg, unbannedBy) {
+  const label = isFirstMsg ? "Auto-banned \u00b7 First-time chatter" : "Auto-banned";
+
+  const container = new ContainerBuilder()
+    .setAccentColor(0xed4245)
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(formattedText))
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# \u{1F916} ${label}`))
+    .addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`-# Matched: ${matchedPattern}`)
+    )
+    .addActionRowComponents(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("mod-unban")
+          .setLabel("Unban")
+          .setStyle(ButtonStyle.Success)
+          .setDisabled(true)
+      )
+    )
+    .addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`-# \u2705 Unbanned by ${unbannedBy}`)
+    );
+
+  return {
+    components: [container],
+    flags: MessageFlags.IsComponentsV2
+  };
+}
+
+/**
+ * Build an expired auto-ban V2 message (unban button removed after TTL)
+ */
+export function buildExpiredAutoBanV2Message(formattedText, matchedPattern, isFirstMsg) {
+  const label = isFirstMsg ? "Auto-banned \u00b7 First-time chatter" : "Auto-banned";
+
+  const container = new ContainerBuilder()
+    .setAccentColor(0xed4245)
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(formattedText))
+    .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# \u{1F916} ${label}`))
+    .addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`-# Matched: ${matchedPattern}`)
+    );
+
+  return {
+    components: [container],
+    flags: MessageFlags.IsComponentsV2
+  };
+}
