@@ -194,11 +194,17 @@ export class TwitchAPIClient {
    * Ban a user from Twitch chat
    * @param {string} channelName - Channel name
    * @param {string} username - Username to ban
+   * @param {string} [reason] - Optional ban reason
    */
-  async banUser(channelName, username) {
+  async banUser(channelName, username, reason) {
     const accessToken = await this.getAccessToken();
     const { broadcasterId, moderatorId } = await this.getBroadcasterAndModeratorIds(channelName);
     const userId = await this.getUserId(username);
+
+    const banData = { user_id: userId };
+    if (reason) {
+      banData.reason = reason;
+    }
 
     const response = await fetchWithTimeout(
       `https://api.twitch.tv/helix/moderation/bans?broadcaster_id=${broadcasterId}&moderator_id=${moderatorId}`,
@@ -210,9 +216,7 @@ export class TwitchAPIClient {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          data: {
-            user_id: userId
-          }
+          data: banData
         })
       }
     );
@@ -220,6 +224,33 @@ export class TwitchAPIClient {
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`Failed to ban user: ${response.status} - ${errorText}`);
+    }
+  }
+
+  /**
+   * Unban a user from Twitch chat
+   * @param {string} channelName - Channel name
+   * @param {string} username - Username to unban
+   */
+  async unbanUser(channelName, username) {
+    const accessToken = await this.getAccessToken();
+    const { broadcasterId, moderatorId } = await this.getBroadcasterAndModeratorIds(channelName);
+    const userId = await this.getUserId(username);
+
+    const response = await fetchWithTimeout(
+      `https://api.twitch.tv/helix/moderation/bans?broadcaster_id=${broadcasterId}&moderator_id=${moderatorId}&user_id=${userId}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Client-Id": this.clientId
+        }
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to unban user: ${response.status} - ${errorText}`);
     }
   }
 
