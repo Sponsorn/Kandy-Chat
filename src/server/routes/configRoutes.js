@@ -4,6 +4,12 @@ import { requireAuth, Permissions } from "../../auth/sessionManager.js";
 import { loadBlacklist, addBlacklistWord, removeBlacklistWord } from "../../blacklistStore.js";
 import { loadEmojiMappings, addEmojiMapping, removeEmojiMapping } from "../../emojiMappingStore.js";
 import { loadConfig, updateConfigSection } from "../../configStore.js";
+import {
+  loadAutoBanRules,
+  addAutoBanRule,
+  updateAutoBanRule,
+  removeAutoBanRule
+} from "../../autoBanStore.js";
 
 /**
  * Create configuration API routes
@@ -516,6 +522,141 @@ export function createConfigRoutes(options = {}) {
       }
     } catch (error) {
       res.status(500).json({ error: "Failed to remove emoji mapping" });
+    }
+  });
+
+  /**
+   * GET /api/auto-ban-rules - List all auto-ban rules
+   */
+  router.get("/api/auto-ban-rules", requireAuth(Permissions.MODERATOR), async (req, res) => {
+    try {
+      const rules = await loadAutoBanRules();
+      res.json({ rules });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to load auto-ban rules" });
+    }
+  });
+
+  /**
+   * POST /api/auto-ban-rules - Add a new auto-ban rule
+   */
+  router.post("/api/auto-ban-rules", requireAuth(Permissions.ADMIN), async (req, res) => {
+    const { pattern, isRegex, flags, enabled, firstMsgOnly } = req.body;
+
+    if (!pattern || typeof pattern !== "string" || !pattern.trim()) {
+      return res.status(400).json({ error: "Pattern is required" });
+    }
+
+    if (isRegex) {
+      try {
+        new RegExp(pattern, flags || "i");
+      } catch (error) {
+        return res.status(400).json({ error: `Invalid regex: ${error.message}` });
+      }
+    }
+
+    try {
+      const rule = await addAutoBanRule({
+        pattern: pattern.trim(),
+        isRegex: Boolean(isRegex),
+        flags: flags || "i",
+        enabled: enabled !== false,
+        firstMsgOnly: firstMsgOnly !== false
+      });
+
+      const rules = await loadAutoBanRules();
+      botState.setAutoBanRules(rules);
+
+      const actor = req.session?.user?.username || "unknown";
+      botState.recordAuditEvent("auto_ban_rule_added", actor, {
+        ruleId: rule.id,
+        pattern: rule.pattern
+      });
+
+      res.json({ rule });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to add auto-ban rule" });
+    }
+  });
+
+  /**
+   * PUT /api/auto-ban-rules/:id - Update an auto-ban rule
+   */
+  router.put("/api/auto-ban-rules/:id", requireAuth(Permissions.ADMIN), async (req, res) => {
+    const { id } = req.params;
+    const updates = {};
+
+    if ("enabled" in req.body) updates.enabled = Boolean(req.body.enabled);
+    if ("firstMsgOnly" in req.body) updates.firstMsgOnly = Boolean(req.body.firstMsgOnly);
+    if ("pattern" in req.body) {
+      if (typeof req.body.pattern !== "string" || !req.body.pattern.trim()) {
+        return res.status(400).json({ error: "Pattern must be a non-empty string" });
+      }
+      updates.pattern = req.body.pattern.trim();
+    }
+    if ("isRegex" in req.body) updates.isRegex = Boolean(req.body.isRegex);
+    if ("flags" in req.body) updates.flags = req.body.flags;
+
+    if (updates.isRegex || (updates.pattern && req.body.isRegex !== false)) {
+      const pattern = updates.pattern || req.body.pattern;
+      const flags = updates.flags || req.body.flags || "i";
+      if (pattern) {
+        try {
+          new RegExp(pattern, flags);
+        } catch (error) {
+          return res.status(400).json({ error: `Invalid regex: ${error.message}` });
+        }
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "No valid updates provided" });
+    }
+
+    try {
+      const updated = await updateAutoBanRule(id, updates);
+      if (!updated) {
+        return res.status(404).json({ error: "Rule not found" });
+      }
+
+      const rules = await loadAutoBanRules();
+      botState.setAutoBanRules(rules);
+
+      const actor = req.session?.user?.username || "unknown";
+      botState.recordAuditEvent("auto_ban_rule_updated", actor, {
+        ruleId: id,
+        updates
+      });
+
+      res.json({ rule: updated });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update auto-ban rule" });
+    }
+  });
+
+  /**
+   * DELETE /api/auto-ban-rules/:id - Remove an auto-ban rule
+   */
+  router.delete("/api/auto-ban-rules/:id", requireAuth(Permissions.ADMIN), async (req, res) => {
+    const { id } = req.params;
+
+    try {
+      const removed = await removeAutoBanRule(id);
+      if (!removed) {
+        return res.status(404).json({ error: "Rule not found" });
+      }
+
+      const rules = await loadAutoBanRules();
+      botState.setAutoBanRules(rules);
+
+      const actor = req.session?.user?.username || "unknown";
+      botState.recordAuditEvent("auto_ban_rule_removed", actor, {
+        ruleId: id
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to remove auto-ban rule" });
     }
   });
 
