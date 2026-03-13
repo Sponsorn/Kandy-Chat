@@ -36,7 +36,12 @@ export function createDashboardSocket(server) {
       ws,
       session,
       permission,
-      subscribedEvents: new Set(["stream:status", "status:update", "chat:message", "chat:message-deleted"]) // Default subscriptions for all users
+      subscribedEvents: new Set([
+        "stream:status",
+        "status:update",
+        "chat:message",
+        "chat:message-deleted"
+      ]) // Default subscriptions for all users
     };
     clients.set(ws, clientInfo);
 
