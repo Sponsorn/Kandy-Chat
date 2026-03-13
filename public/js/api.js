@@ -115,6 +115,25 @@ export const blacklist = {
   }
 };
 
+// Auto-Ban Rules API
+export const autoBan = {
+  async getRules() {
+    return request("GET", "/api/auto-ban-rules");
+  },
+
+  async addRule(rule) {
+    return request("POST", "/api/auto-ban-rules", rule);
+  },
+
+  async updateRule(id, updates) {
+    return request("PUT", `/api/auto-ban-rules/${id}`, updates);
+  },
+
+  async removeRule(id) {
+    return request("DELETE", `/api/auto-ban-rules/${id}`);
+  }
+};
+
 // Config API
 export const config = {
   async get() {

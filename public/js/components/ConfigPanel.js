@@ -1,6 +1,6 @@
 import { html } from "htm/preact";
 import { useState, useEffect, useCallback } from "preact/hooks";
-import { config } from "../api.js";
+import { config, autoBan } from "../api.js";
 import { canAdmin } from "../state.js";
 
 function ConfigSection({ title, children, badge = null }) {
@@ -163,6 +163,236 @@ function TemplateEditor({ label, value, onChange, tags = [], placeholder = "" })
         </div>
       `}
     </div>
+  `;
+}
+
+function AutoBanSection() {
+  const [rules, setRules] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newPattern, setNewPattern] = useState("");
+  const [newIsRegex, setNewIsRegex] = useState(true);
+  const [newFirstMsgOnly, setNewFirstMsgOnly] = useState(true);
+  const [error, setError] = useState(null);
+  const isAdmin = canAdmin.value;
+
+  const loadRules = useCallback(async () => {
+    try {
+      const data = await autoBan.getRules();
+      setRules(data.rules || []);
+    } catch (err) {
+      console.error("Failed to load auto-ban rules:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadRules();
+    const handler = () => loadRules();
+    window.addEventListener("app:config-update", handler);
+    return () => window.removeEventListener("app:config-update", handler);
+  }, [loadRules]);
+
+  const handleToggle = async (id, field, value) => {
+    try {
+      setError(null);
+      await autoBan.updateRule(id, { [field]: value });
+      setRules((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleAdd = async () => {
+    if (!newPattern.trim()) return;
+    try {
+      setError(null);
+      const data = await autoBan.addRule({
+        pattern: newPattern.trim(),
+        isRegex: newIsRegex,
+        flags: "i",
+        enabled: true,
+        firstMsgOnly: newFirstMsgOnly
+      });
+      setRules((prev) => [...prev, data.rule]);
+      setNewPattern("");
+      setShowAddForm(false);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleRemove = async (id) => {
+    try {
+      setError(null);
+      await autoBan.removeRule(id);
+      setRules((prev) => prev.filter((r) => r.id !== id));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  if (loading) {
+    return html`<${ConfigSection} title="Auto Ban Rules" badge="Loading...">
+      <p style="color: var(--text-secondary);">Loading...</p>
+    </${ConfigSection}>`;
+  }
+
+  return html`
+    <${ConfigSection} title="Auto Ban Rules" badge=${isAdmin ? "Editable" : "View only"}>
+      ${error && html`<p style="color: var(--error-color); margin-bottom: 0.5rem;">${error}</p>`}
+      ${
+        rules.length === 0
+          ? html`<p style="color: var(--text-secondary); padding: 0.5rem 0;">
+              No auto-ban rules configured.
+            </p>`
+          : html`
+              <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+                  <thead>
+                    <tr style="border-bottom: 2px solid var(--border-color);">
+                      <th style="text-align: left; padding: 0.5rem; color: var(--text-secondary);">
+                        Pattern
+                      </th>
+                      <th
+                        style="text-align: center; padding: 0.5rem; color: var(--text-secondary);"
+                      >
+                        First-msg
+                      </th>
+                      <th
+                        style="text-align: center; padding: 0.5rem; color: var(--text-secondary);"
+                      >
+                        Enabled
+                      </th>
+                      ${isAdmin &&
+                      html`<th
+                        style="text-align: center; padding: 0.5rem; color: var(--text-secondary);"
+                      ></th>`}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${rules.map(
+                      (rule) => html`
+                        <tr style="border-bottom: 1px solid var(--border-color);">
+                          <td
+                            style="padding: 0.5rem; font-family: monospace; font-size: 0.85rem; word-break: break-all;"
+                          >
+                            ${rule.isRegex
+                              ? html`<span style="color: var(--accent-primary);"
+                                  >/${rule.pattern}/${rule.flags || "i"}</span
+                                >`
+                              : rule.pattern}
+                          </td>
+                          <td style="text-align: center; padding: 0.5rem;">
+                            <input
+                              type="checkbox"
+                              checked=${rule.firstMsgOnly}
+                              onChange=${(e) =>
+                                handleToggle(rule.id, "firstMsgOnly", e.target.checked)}
+                              disabled=${!isAdmin}
+                              style="cursor: ${isAdmin ? "pointer" : "not-allowed"};"
+                            />
+                          </td>
+                          <td style="text-align: center; padding: 0.5rem;">
+                            <input
+                              type="checkbox"
+                              checked=${rule.enabled}
+                              onChange=${(e) => handleToggle(rule.id, "enabled", e.target.checked)}
+                              disabled=${!isAdmin}
+                              style="cursor: ${isAdmin ? "pointer" : "not-allowed"};"
+                            />
+                          </td>
+                          ${isAdmin &&
+                          html`
+                            <td style="text-align: center; padding: 0.5rem;">
+                              <button
+                                onClick=${() => handleRemove(rule.id)}
+                                style="background: none; border: none; color: var(--error-color); cursor: pointer; font-size: 1rem;"
+                                title="Remove rule"
+                              >
+                                ✕
+                              </button>
+                            </td>
+                          `}
+                        </tr>
+                      `
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            `
+      }
+      ${
+        isAdmin &&
+        !showAddForm &&
+        html`
+          <button
+            onClick=${() => setShowAddForm(true)}
+            class="btn btn-sm"
+            style="margin-top: 0.75rem;"
+          >
+            + Add Rule
+          </button>
+        `
+      }
+      ${
+        isAdmin &&
+        showAddForm &&
+        html`
+          <div
+            style="margin-top: 0.75rem; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px;"
+          >
+            <div style="margin-bottom: 0.5rem;">
+              <input
+                type="text"
+                value=${newPattern}
+                onInput=${(e) => setNewPattern(e.target.value)}
+                placeholder=${newIsRegex ? "Regex pattern (e.g. \\w+\\s+\\.com)" : "Text to match"}
+                style="width: 100%; padding: 0.5rem; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px; font-family: monospace;"
+              />
+            </div>
+            <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 0.5rem;">
+              <label style="display: flex; align-items: center; gap: 0.25rem; cursor: pointer;">
+                <input
+                  type="checkbox"
+                  checked=${newIsRegex}
+                  onChange=${(e) => setNewIsRegex(e.target.checked)}
+                />
+                Regex
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.25rem; cursor: pointer;">
+                <input
+                  type="checkbox"
+                  checked=${newFirstMsgOnly}
+                  onChange=${(e) => setNewFirstMsgOnly(e.target.checked)}
+                />
+                First-msg only
+              </label>
+            </div>
+            <div style="display: flex; gap: 0.5rem;">
+              <button
+                onClick=${handleAdd}
+                class="btn btn-sm"
+                style="background: var(--accent-primary);"
+              >
+                Add
+              </button>
+              <button
+                onClick=${() => {
+                  setShowAddForm(false);
+                  setNewPattern("");
+                  setError(null);
+                }}
+                class="btn btn-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        `
+      }
+    </${ConfigSection}>
   `;
 }
 
@@ -416,6 +646,8 @@ export function ConfigPanel() {
           </div>
         `}
       <//>
+
+      <${AutoBanSection} />
 
       <${ConfigSection} title="Subscription Messages" badge=${isAdmin ? "Editable" : "View only"}>
         <h4 style="color: var(--text-primary); margin: 0 0 0.75rem 0; font-size: 1rem;">
