@@ -383,25 +383,23 @@ async function start() {
           return;
         }
 
-        // Suppress offline alert if a stream.online was received very recently
-        // This handles Twitch 48h automatic stream restarts where online+offline
-        // events arrive within milliseconds of each other
+        // Delay offline alert to handle stream restarts in either event order:
+        // 1. offline→online (timer cancelled when online arrives)
+        // 2. online→offline within seconds (recent online detected, use longer delay)
         const restartSuppressMs =
           (parseInt(process.env.RESTART_SUPPRESS_WINDOW_SECONDS, 10) || 60) * 1000;
         const lastOnline = lastOnlineTimestamp.get(broadcasterName.toLowerCase());
-        if (lastOnline && Date.now() - lastOnline < restartSuppressMs) {
-          console.log(
-            `Skipping offline alert - ${broadcasterName} had a stream.online ${Date.now() - lastOnline}ms ago (stream restart)`
-          );
-          botState.setStreamStatus(broadcasterName.toLowerCase(), "online");
-          return;
-        }
+        const recentRestart = lastOnline && Date.now() - lastOnline < restartSuppressMs;
 
-        // Delay offline alert to handle offline→online restart order
-        // If a stream.online arrives during the delay, the timer is cancelled
-        const offlineDelayMs =
-          (parseInt(process.env.RESTART_SUPPRESS_WINDOW_SECONDS, 10) || 60) * 1000;
-        console.log(`Delaying offline alert for ${broadcasterName} by ${offlineDelayMs / 1000}s`);
+        const offlineDelayMs = restartSuppressMs;
+
+        if (recentRestart) {
+          console.log(
+            `${broadcasterName} had a stream.online ${Date.now() - lastOnline}ms ago (possible restart) - delaying offline alert by ${offlineDelayMs / 1000}s`
+          );
+        } else {
+          console.log(`Delaying offline alert for ${broadcasterName} by ${offlineDelayMs / 1000}s`);
+        }
 
         const existing = pendingOfflineTimers.get(broadcasterName.toLowerCase());
         if (existing) clearTimeout(existing);
