@@ -537,9 +537,11 @@ async function start() {
     for (const [channel, status] of streamStatuses) {
       botState.setStreamStatus(channel, status.live ? "online" : "offline");
       console.log(`Initial stream status for ${channel}: ${status.live ? "online" : "offline"}`);
-      writeStreamStatus(channel, status.live).catch((err) =>
-        console.error("Failed to write initial stream status:", err)
-      );
+      try {
+        await writeStreamStatus(channel, status.live);
+      } catch (err) {
+        console.error("Failed to write initial stream status:", err);
+      }
     }
   } catch (error) {
     console.error("Failed to initialize stream status:", error.message);
