@@ -382,12 +382,16 @@ export class TwitchAPIClient {
       const batch = normalizedLogins.slice(i, i + batchSize);
       const params = batch.map((l) => `user_login=${encodeURIComponent(l)}`).join("&");
 
-      const response = await fetchWithTimeout(`https://api.twitch.tv/helix/streams?${params}`, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Client-Id": this.clientId
-        }
-      });
+      const response = await fetchWithTimeout(
+        `https://api.twitch.tv/helix/streams?${params}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Client-Id": this.clientId
+          }
+        },
+        15000
+      );
 
       if (!response.ok) {
         console.error(`Failed to get stream status: ${response.status}`);
