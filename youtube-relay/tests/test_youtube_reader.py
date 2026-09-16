@@ -397,3 +397,48 @@ def test_no_live_stream_uses_flat_wait_not_backoff():
         reader._read_loop(1, threading.Event())
 
     assert waits == [youtube_reader._NO_STREAM_WAIT] * 3
+
+
+# --- emoji rendering ---
+
+
+def test_render_emoji_prefers_ascii_shortcode():
+    from youtube_reader import _render_emoji_run
+
+    assert _render_emoji_run({"emojiId": "❤️", "shortcuts": [":heart:"]}) == ":heart:"
+
+
+def test_render_emoji_uses_unicode_when_no_ascii_shortcode():
+    """Flags and similar have no ASCII shortcode; emit the emoji itself, not :label:."""
+    from youtube_reader import _render_emoji_run
+
+    flag = "\U0001F1E7\U0001F1F7"  # Brazil
+    run = {
+        "emojiId": flag,
+        "shortcuts": [],
+        "isCustomEmoji": False,
+        "image": {"accessibility": {"accessibilityData": {"label": flag}}},
+    }
+    assert _render_emoji_run(run) == flag
+
+    # Same when YouTube only offers a non-ASCII shortcut
+    run["shortcuts"] = [f":{flag}:"]
+    assert _render_emoji_run(run) == flag
+
+
+def test_render_emoji_custom_without_shortcode_uses_label():
+    from youtube_reader import _render_emoji_run
+
+    run = {
+        "emojiId": "UCabc/xyz",
+        "isCustomEmoji": True,
+        "image": {"accessibility": {"accessibilityData": {"label": "kandy hype"}}},
+    }
+    assert _render_emoji_run(run) == ":kandy_hype:"
+
+
+def test_render_emoji_unicode_label_fallback_is_not_wrapped():
+    from youtube_reader import _render_emoji_run
+
+    run = {"image": {"accessibility": {"accessibilityData": {"label": "\U0001F600"}}}}
+    assert _render_emoji_run(run) == "\U0001F600"

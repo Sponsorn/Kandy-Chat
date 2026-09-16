@@ -6,6 +6,15 @@ import re
 import time
 from datetime import datetime, timezone
 
+_UNICODE_EMOJI = (
+    r"(?:[\U0001F1E6-\U0001F1FF]{2}"  # flags
+    r"|(?:[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\u3030\u303D\u3297\u3299]"
+    r"|[0-9#*]\uFE0F?\u20E3)"  # keycaps
+    r"[\uFE0F\U0001F3FB-\U0001F3FF]*"
+    r"(?:\u200D[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF][\uFE0F\U0001F3FB-\U0001F3FF]*)*)"
+)
+_EMOJI_TOKEN_RE = r":[a-zA-Z0-9_-]+:|" + _UNICODE_EMOJI
+
 # Keep at most this many distinct unmapped emojis on disk
 _UNMAPPED_MAX = 500
 # Do not rewrite the unmapped file more often than this
@@ -26,7 +35,12 @@ class EmojiConverter:
         self._mappings = {}
         self._last_reload = 0
         self._reload_interval = reload_interval
+        # Shortcodes that can be mapped via emoji-mappings.json
         self._pattern = re.compile(r":[a-zA-Z0-9_-]+:")
+        # Anything that counts as one emoji for collapsing: a shortcode, or a
+        # Unicode emoji (flags as regional-indicator pairs, base symbol with
+        # optional variation selector / skin tone, ZWJ sequences)
+        self._token_pattern = re.compile(_EMOJI_TOKEN_RE)
         # Shortcodes seen in chat that have no mapping: { ":code:": {"count", "last_seen", "sample"} }
         # Shared with the dashboard via data/emoji-unmapped.json so they can be mapped there.
         self._unmapped = {}
@@ -126,7 +140,7 @@ class EmojiConverter:
         is lowercased. Emoji shortcodes are unaffected since they
         are already lowercase.
         """
-        text_only = self._pattern.sub("", message)
+        text_only = self._token_pattern.sub("", message)
         alpha_chars = [c for c in text_only if c.isalpha()]
         if len(alpha_chars) >= 2 and all(c.isupper() for c in alpha_chars):
             return message.lower()
@@ -140,7 +154,7 @@ class EmojiConverter:
         - At most `max_unique` unique emojis are kept; extras are stripped.
         - Extra whitespace left by removals is cleaned up.
         """
-        all_emojis = self._pattern.findall(message)
+        all_emojis = self._token_pattern.findall(message)
         if not all_emojis:
             return message
 
@@ -154,21 +168,23 @@ class EmojiConverter:
 
         def replace_match(match):
             emoji = match.group(0)
-            if emoji not in seen:
-                if len(unique_order) >= max_unique:
-                    return ""
-                unique_order.append(emoji)
-                seen[emoji] = True
-                count = counts[emoji]
-                if count > 1:
-                    return f"{emoji} x{count} "
-                return emoji
-            else:
+            if emoji in seen:
                 return ""
+            if len(unique_order) >= max_unique:
+                return ""
+            unique_order.append(emoji)
+            seen[emoji] = True
+            # Ensure a space before emojis jammed against text (e.g. "Mom:heart:").
+            # Decided here, on the original string, so a flag or ZWJ sequence is
+            # never split by a second pass.
+            start = match.start()
+            prefix = " " if start > 0 and not message[start - 1].isspace() else ""
+            count = counts[emoji]
+            if count > 1:
+                return f"{prefix}{emoji} x{count} "
+            return f"{prefix}{emoji}"
 
-        result = self._pattern.sub(replace_match, message)
-        # Ensure a space before emojis jammed against text (e.g. "Mom:heart:")
-        result = re.sub(r"(?<=\S)(:[a-zA-Z0-9_-]+:)", r" \1", result)
+        result = self._token_pattern.sub(replace_match, message)
         result = re.sub(r"  +", " ", result).strip()
         return result
 

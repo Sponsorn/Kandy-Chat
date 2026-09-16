@@ -53,6 +53,41 @@ def _log(msg):
     print(f"[{ts}] {msg}", flush=True)
 
 
+_SHORTCODE_RE = re.compile(r"^:[a-zA-Z0-9_-]+:$")
+
+
+def _render_emoji_run(emoji):
+    """Turn an innertube emoji run into text.
+
+    Preference order:
+    1. an ASCII shortcode such as ``:heart:`` (so emoji-mappings.json applies)
+    2. the plain Unicode emoji when YouTube gives one and it is not a custom
+       channel emoji, e.g. flags, which have no ASCII shortcode
+    3. the accessibility label, wrapped in colons only when it is ASCII
+    """
+    shortcuts = emoji.get("shortcuts") or []
+    for shortcut in shortcuts:
+        if isinstance(shortcut, str) and _SHORTCODE_RE.match(shortcut):
+            return shortcut
+
+    emoji_id = emoji.get("emojiId") or ""
+    is_custom = bool(emoji.get("isCustomEmoji")) or "/" in emoji_id
+    if emoji_id and not is_custom and not emoji_id.isascii():
+        return emoji_id
+
+    label = (
+        emoji.get("image", {})
+        .get("accessibility", {})
+        .get("accessibilityData", {})
+        .get("label", "")
+    )
+    if not label:
+        return shortcuts[0] if shortcuts else ""
+    if label.isascii():
+        return f":{label.strip().replace(' ', '_')}:"
+    return label
+
+
 class TransientPollError(Exception):
     """A poll failed in a way that is worth retrying with the same token."""
 
@@ -292,19 +327,7 @@ class YouTubeChatReader:
                 if "text" in run:
                     parts.append(run["text"])
                 elif "emoji" in run:
-                    emoji = run["emoji"]
-                    shortcuts = emoji.get("shortcuts", [])
-                    if shortcuts:
-                        parts.append(shortcuts[0])
-                    else:
-                        label = (
-                            emoji.get("image", {})
-                            .get("accessibility", {})
-                            .get("accessibilityData", {})
-                            .get("label", "")
-                        )
-                        if label:
-                            parts.append(f":{label}:")
+                    parts.append(_render_emoji_run(run["emoji"]))
 
             text = "".join(parts).strip()
             if text:

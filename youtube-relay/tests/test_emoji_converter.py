@@ -307,3 +307,60 @@ def test_unmapped_list_is_bounded(tmp_path):
     for i in range(emoji_converter._UNMAPPED_MAX + 25):
         converter.record_unmapped(f":e{i}:")
     assert len(converter.unmapped) == emoji_converter._UNMAPPED_MAX
+
+
+# --- unicode emoji collapsing ---
+
+
+def test_collapse_unicode_flag_spam():
+    """Repeated Unicode emojis (flags) collapse like shortcodes do."""
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    flag = "\U0001F1E7\U0001F1F7"
+    result = converter.collapse_emojis(flag * 22)
+    assert result == f"{flag} x22"
+
+
+def test_collapse_mixed_unicode_and_shortcodes():
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    result = converter.collapse_emojis("go \U0001F525\U0001F525 :heart: \U0001F525 :heart:")
+    assert result == "go \U0001F525 x3 :heart: x2"
+
+
+def test_collapse_keeps_zwj_and_skin_tone_sequences_intact():
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    family = "\U0001F468‍\U0001F469‍\U0001F467"
+    wave = "\U0001F44B\U0001F3FD"
+    result = converter.collapse_emojis(f"{family}{family} {wave}{wave}{wave}")
+    assert result == f"{family} x2 {wave} x3"
+
+
+def test_collapse_limits_unique_unicode_emojis():
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    emojis = ["\U0001F600", "\U0001F601", "\U0001F602", "\U0001F603", "\U0001F604", "\U0001F605"]
+    result = converter.collapse_emojis(" ".join(emojis), max_unique=5)
+    assert result == " ".join(emojis[:5])
+
+
+def test_normalize_caps_ignores_unicode_emojis():
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter("/app/data")
+    assert converter.normalize_caps("LETS GO \U0001F525") == "lets go \U0001F525"
+    assert converter.normalize_caps("\U0001F1E7\U0001F1F7 Hi") == "\U0001F1E7\U0001F1F7 Hi"
+
+
+def test_convert_does_not_treat_unicode_emojis_as_unmapped(tmp_path):
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter(str(tmp_path))
+    converter._mappings = {}
+    converter.convert("nice \U0001F1E7\U0001F1F7 :real_unmapped:")
+    assert set(converter.unmapped) == {":real_unmapped:"}
