@@ -366,15 +366,22 @@ async function start() {
         console.error("Failed to write stream status:", err)
       );
 
-      const offlineAlertChannels = process.env.OFFLINE_ALERT_CHANNELS?.split(",")
+      // Which channels may post a Discord offline alert. Defaults to the EventSub
+      // broadcasters so the Helix poller (which covers every TWITCH_CHANNEL) never
+      // alerts for a channel that EventSub was deliberately not set up for.
+      const offlineAlertChannels = (
+        process.env.OFFLINE_ALERT_CHANNELS ||
+        process.env.EVENTSUB_BROADCASTER ||
+        ""
+      )
+        .split(",")
         .map((c) => c.trim().toLowerCase())
         .filter(Boolean);
 
-      if (
-        offlineAlertChannels?.length &&
-        !offlineAlertChannels.includes(broadcasterName.toLowerCase())
-      ) {
-        console.log(`Skipping offline alert - ${broadcasterName} not in OFFLINE_ALERT_CHANNELS`);
+      if (!offlineAlertChannels.includes(broadcasterName.toLowerCase())) {
+        console.log(
+          `Skipping offline alert - ${broadcasterName} not in OFFLINE_ALERT_CHANNELS/EVENTSUB_BROADCASTER`
+        );
         return;
       }
 

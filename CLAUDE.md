@@ -212,7 +212,7 @@ Critical dependencies between env vars:
 - EventSub requires: Public HTTPS URL, set via `EVENTSUB_PUBLIC_URL`
 
 ### Offline Alert Filtering
-- `OFFLINE_ALERT_CHANNELS`: Comma-separated list of channels that trigger offline alerts. If not set, all `EVENTSUB_BROADCASTER` channels trigger alerts.
+- `OFFLINE_ALERT_CHANNELS`: Comma-separated list of channels that trigger offline alerts. If not set, only `EVENTSUB_BROADCASTER` channels trigger alerts. The Helix status poller reports online/offline for every `TWITCH_CHANNEL` (so `data/stream-status.json` and the dashboard stay correct) but the alert filter above still applies, so a channel outside both lists never posts to Discord.
 - `RAID_SUPPRESS_WINDOW_SECONDS`: Suppress offline alerts for this duration (in seconds) after a channel raids another (default: 30). This prevents false "went offline" messages when a streamer ends by raiding.
 
 ### Web Dashboard
