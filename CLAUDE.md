@@ -110,8 +110,8 @@ No build step — code runs directly via Node.js ESM modules.
 - `createTokenProvider()`: factory for API client token access
 
 #### [src/auth/](src/auth/)
-- `sessionManager.js`: In-memory session store with permission levels (VIEWER=0, MODERATOR=1, ADMIN=2)
-- `discordOAuth.js`: Discord OAuth2 flow, fetches user roles from configured guild
+- `sessionManager.js`: Session store with permission levels (VIEWER=0, MODERATOR=1, ADMIN=2). Sessions live in memory and are mirrored to `data/sessions.json` (debounced atomic writes, mode 0600) so restarts keep users logged in. Lifetime is 30 days of inactivity, rolling: `getSession()` extends `lastAccess` at most hourly and `sessionMiddleware()` re-issues the cookie when that happens
+- `discordOAuth.js`: Discord OAuth2 flow (`prompt=none`, so the consent screen only shows the first time), fetches user roles from configured guild
 - `twitchOAuth.js`: Twitch OAuth2 flow, checks moderator status in configured channels
 
 #### [src/state/BotState.js](src/state/BotState.js)
@@ -228,6 +228,7 @@ Critical dependencies between env vars:
 - `data/tokens.json`: Shared access + refresh tokens (written by main bot, read by youtube-relay)
 - `data/emoji-mappings.json`: YouTube emoji → text mappings (managed via dashboard, read by youtube-relay)
 - `data/emoji-unmapped.json`: Shortcodes seen in YouTube chat with no mapping, with count, last seen and a sample message (written by youtube-relay, read by the dashboard's Emoji Mappings page via `GET /api/emoji-mappings/unmapped`; entries disappear once mapped)
+- `data/sessions.json`: Dashboard sessions (user profile, roles, permission level; no tokens), written by `sessionManager.js`
 - `data/stream-status.json`: Per-channel live status (written by main bot on EventSub events, at startup, and by the Helix status poller; read by youtube-relay)
 
 ## Common Patterns

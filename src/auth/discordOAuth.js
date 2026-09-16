@@ -72,7 +72,9 @@ export function buildAuthUrl(config) {
     redirect_uri: redirectUri,
     response_type: "code",
     scope: "identify guilds.members.read",
-    state
+    state,
+    // Skip the consent screen for users who already approved these scopes
+    prompt: "none"
   });
 
   // Add guild_id to pre-select guild in consent screen

@@ -4,6 +4,7 @@ import { parseBool } from "../envUtils.js";
 import {
   sessionMiddleware,
   startSessionCleanup,
+  flushSessions,
   destroySession,
   createLogoutCookie,
   Permissions,
@@ -76,8 +77,14 @@ export async function startWebServer(env, options = {}) {
 
   // Session middleware for dashboard
   if (dashboardEnabled) {
-    app.use(sessionMiddleware());
+    app.use(
+      sessionMiddleware({
+        domain: env.DASHBOARD_DOMAIN?.trim() || null,
+        secure: env.NODE_ENV !== "development"
+      })
+    );
     startSessionCleanup();
+    process.once("exit", flushSessions);
   }
 
   // CSRF protection for state-changing endpoints

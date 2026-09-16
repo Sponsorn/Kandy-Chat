@@ -1,17 +1,94 @@
 import crypto from "node:crypto";
+import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync } from "node:fs";
+import { join, dirname } from "node:path";
 
 /**
  * Session manager for dashboard authentication
- * Uses in-memory sessions with secure cookie handling
+ *
+ * Sessions are kept in memory and mirrored to data/sessions.json so a bot
+ * restart does not log everyone out. A session expires after SESSION_MAX_AGE
+ * of inactivity (rolling): each visit extends it and re-issues the cookie.
  */
 
-// In-memory session store
+// In-memory session store, loaded from disk on first use
 const sessions = new Map();
+let sessionsLoaded = false;
+let storePath = join(process.cwd(), "data", "sessions.json");
+let saveTimer = null;
 
 // Session cleanup interval (every 15 minutes)
 const SESSION_CLEANUP_INTERVAL = 15 * 60 * 1000;
-// Session max age (24 hours)
-const SESSION_MAX_AGE = 24 * 60 * 60 * 1000;
+// Session idle lifetime (30 days, rolling)
+export const SESSION_MAX_AGE = 30 * 24 * 60 * 60 * 1000;
+// Persist / re-issue the cookie only when lastAccess moved at least this much
+const TOUCH_GRANULARITY = 60 * 60 * 1000;
+// Coalesce writes
+const SAVE_DEBOUNCE_MS = 1000;
+
+/**
+ * Point the session store at another file (tests) and drop in-memory state.
+ */
+export function configureSessionStore({ path } = {}) {
+  if (path) storePath = path;
+  sessions.clear();
+  sessionsLoaded = false;
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+}
+
+function isExpired(session, now = Date.now()) {
+  const last = session.lastAccess || session.createdAt || 0;
+  return now - last > SESSION_MAX_AGE;
+}
+
+function ensureLoaded() {
+  if (sessionsLoaded) return;
+  sessionsLoaded = true;
+  if (!existsSync(storePath)) return;
+  try {
+    const data = JSON.parse(readFileSync(storePath, "utf8"));
+    const now = Date.now();
+    let restored = 0;
+    for (const session of Array.isArray(data) ? data : []) {
+      if (!session?.id || !session.user || isExpired(session, now)) continue;
+      sessions.set(session.id, session);
+      restored++;
+    }
+    if (restored > 0) console.log(`Restored ${restored} dashboard session(s)`);
+  } catch (error) {
+    console.error("Failed to load sessions, starting empty:", error.message);
+  }
+}
+
+function saveNow() {
+  saveTimer = null;
+  try {
+    mkdirSync(dirname(storePath), { recursive: true });
+    const tmp = `${storePath}.tmp`;
+    writeFileSync(tmp, JSON.stringify([...sessions.values()]), { encoding: "utf8", mode: 0o600 });
+    renameSync(tmp, storePath);
+  } catch (error) {
+    console.error("Failed to save sessions:", error.message);
+  }
+}
+
+function scheduleSave() {
+  if (saveTimer) return;
+  saveTimer = setTimeout(saveNow, SAVE_DEBOUNCE_MS);
+  if (typeof saveTimer.unref === "function") saveTimer.unref();
+}
+
+/**
+ * Write pending session changes immediately (used on shutdown and in tests).
+ */
+export function flushSessions() {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveNow();
+  }
+}
 
 // Permission levels
 export const Permissions = {
@@ -39,7 +116,9 @@ export function createSession(userData) {
     createdAt: Date.now(),
     lastAccess: Date.now()
   };
+  ensureLoaded();
   sessions.set(sessionId, session);
+  scheduleSave();
   return sessionId;
 }
 
@@ -49,17 +128,23 @@ export function createSession(userData) {
 export function getSession(sessionId) {
   if (!sessionId) return null;
 
+  ensureLoaded();
   const session = sessions.get(sessionId);
   if (!session) return null;
 
-  // Check if session expired
-  if (Date.now() - session.createdAt > SESSION_MAX_AGE) {
+  const now = Date.now();
+  if (isExpired(session, now)) {
     sessions.delete(sessionId);
+    scheduleSave();
     return null;
   }
 
-  // Update last access time
-  session.lastAccess = Date.now();
+  // Rolling expiry: extend on activity, but only persist once per hour
+  if (now - (session.lastAccess || 0) >= TOUCH_GRANULARITY) {
+    session.lastAccess = now;
+    session.touched = true;
+    scheduleSave();
+  }
   return session;
 }
 
@@ -71,6 +156,7 @@ export function updateSession(sessionId, updates) {
   if (!session) return null;
 
   Object.assign(session, updates);
+  scheduleSave();
   return session;
 }
 
@@ -85,7 +171,10 @@ export function setSessionPermission(sessionId, permission) {
  * Destroy a session
  */
 export function destroySession(sessionId) {
-  return sessions.delete(sessionId);
+  ensureLoaded();
+  const removed = sessions.delete(sessionId);
+  if (removed) scheduleSave();
+  return removed;
 }
 
 /**
@@ -199,12 +288,19 @@ export function createLogoutCookie(cookieName = "session") {
  * Express middleware for session handling
  */
 export function sessionMiddleware(options = {}) {
-  const { cookieName = "session" } = options;
+  const { cookieName = "session", domain = null, secure = true } = options;
 
   return (req, res, next) => {
     const sessionId = parseSessionCookie(req.headers.cookie, cookieName);
     req.session = getSession(sessionId);
     req.sessionId = sessionId;
+
+    // Re-issue the cookie when the session was just extended so the browser's
+    // expiry rolls forward with the server's
+    if (req.session?.touched) {
+      req.session.touched = false;
+      res.setHeader("Set-Cookie", createSessionCookie(sessionId, { cookieName, domain, secure }));
+    }
     next();
   };
 }
@@ -230,12 +326,13 @@ export function requireAuth(minPermission = Permissions.VIEWER) {
  * Start session cleanup interval
  */
 export function startSessionCleanup() {
-  setInterval(() => {
+  ensureLoaded();
+  const timer = setInterval(() => {
     const now = Date.now();
     let cleaned = 0;
 
     for (const [id, session] of sessions.entries()) {
-      if (now - session.createdAt > SESSION_MAX_AGE) {
+      if (isExpired(session, now)) {
         sessions.delete(id);
         cleaned++;
       }
@@ -243,14 +340,18 @@ export function startSessionCleanup() {
 
     if (cleaned > 0) {
       console.log(`Cleaned ${cleaned} expired sessions`);
+      scheduleSave();
     }
   }, SESSION_CLEANUP_INTERVAL);
+  if (typeof timer.unref === "function") timer.unref();
+  return timer;
 }
 
 /**
  * Get session stats (for debugging/monitoring)
  */
 export function getSessionStats() {
+  ensureLoaded();
   return {
     totalSessions: sessions.size,
     byPermission: {
