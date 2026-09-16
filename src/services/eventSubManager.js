@@ -281,11 +281,19 @@ export async function ensureSubscriptions({
     );
   }
 
+  let verificationFailed = false;
   for (const sub of plan.remove) {
     logger?.log(
       `EventSub: removing ${sub.type} (${sub.status}) for ${JSON.stringify(sub.condition)}`
     );
+    if (sub.status === "webhook_callback_verification_failed") verificationFailed = true;
     if (!dryRun) await deleteSubscription(clientId, accessToken, sub.id, fetchImpl);
+  }
+
+  if (verificationFailed) {
+    logger?.warn?.(
+      `EventSub: Twitch could not verify ${callbackUrl}. Check that the URL is reachable from the internet and not behind a login page; a POST without a signature should return 403.`
+    );
   }
 
   for (const want of plan.create) {
