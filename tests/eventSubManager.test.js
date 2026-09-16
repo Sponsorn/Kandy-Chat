@@ -123,10 +123,13 @@ describe("planReconciliation", () => {
     expect(plan.remove).toEqual([b]);
   });
 
-  it("removes enabled subscriptions on our callback that are no longer required", () => {
+  it("keeps enabled subscriptions on our callback that are not required and reports them", () => {
     const other = sub({ id: "other", condition: { broadcaster_user_id: "999" } });
     const plan = planReconciliation([other], required, CALLBACK);
-    expect(plan.remove).toEqual([other]);
+    expect(plan.remove).toEqual([]);
+    expect(plan.keep).toContain(other);
+    expect(plan.extra).toEqual([other]);
+    expect(plan.create).toHaveLength(3);
   });
 
   it("leaves enabled subscriptions for a different callback alone", () => {

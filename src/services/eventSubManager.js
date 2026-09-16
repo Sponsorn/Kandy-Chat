@@ -187,7 +187,7 @@ function conditionMatches(existing, wanted) {
  * Decide what to do with the existing subscriptions given what is required.
  * Pure function so it can be tested without network access.
  *
- * @returns {{ keep: object[], remove: object[], create: object[] }}
+ * @returns {{ keep: object[], remove: object[], create: object[], extra: object[] }}
  */
 export function planReconciliation(existing, required, callbackUrl) {
   const keep = [];
@@ -223,12 +223,19 @@ export function planReconciliation(existing, required, callbackUrl) {
     for (const dup of matches.slice(1)) remove.push(dup);
   }
 
-  // Enabled subscriptions on our callback that we no longer need
+  // Enabled subscriptions on our callback that are not in the required set
+  // (e.g. a broadcaster that was removed from EVENTSUB_BROADCASTER, or one
+  // created by hand). They are harmless and the bot handles their events, so
+  // keep them and let the caller report them rather than deleting.
+  const extra = [];
   for (const sub of usable) {
-    if (!keep.includes(sub) && !remove.includes(sub)) remove.push(sub);
+    if (!keep.includes(sub) && !remove.includes(sub)) {
+      keep.push(sub);
+      extra.push(sub);
+    }
   }
 
-  return { keep, remove, create };
+  return { keep, remove, create, extra };
 }
 
 /**
@@ -267,6 +274,12 @@ export async function ensureSubscriptions({
   const required = buildRequiredSubscriptions(userIds);
   const existing = await listSubscriptions(clientId, accessToken, fetchImpl);
   const plan = planReconciliation(existing, required, callbackUrl);
+
+  for (const sub of plan.extra) {
+    logger?.log(
+      `EventSub: keeping ${sub.type} for ${JSON.stringify(sub.condition)} (not in EVENTSUB_BROADCASTER)`
+    );
+  }
 
   for (const sub of plan.remove) {
     logger?.log(
