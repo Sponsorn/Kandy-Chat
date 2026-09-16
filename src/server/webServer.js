@@ -255,9 +255,19 @@ export async function startWebServer(env, options = {}) {
     app.use(createControlRoutes({ twitchAPIClient }));
     app.use(createChatRoutes());
 
-    // Static files for dashboard frontend
+    // Static files for dashboard frontend. There is no build step and no
+    // cache-busting in file names, so tell browsers to revalidate on every load
+    // (ETag / Last-Modified still let unchanged files come back as 304).
     const publicPath = join(process.cwd(), "public");
-    app.use(express.static(publicPath));
+    app.use(
+      express.static(publicPath, {
+        etag: true,
+        lastModified: true,
+        setHeaders: (res) => {
+          res.setHeader("Cache-Control", "no-cache");
+        }
+      })
+    );
 
     // SPA fallback - serve index.html for non-API routes
     app.get("*", (req, res, next) => {
