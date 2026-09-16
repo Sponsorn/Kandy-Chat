@@ -19,6 +19,8 @@ import { loadConfig } from "./configStore.js";
 import { saveMessage, scheduleCleanup, markMessageRelayed } from "./chatHistoryStore.js";
 import { startFreezeMonitor } from "./freezeMonitor.js";
 import { startWebServer } from "./server/webServer.js";
+import { createStreamStatusPoller } from "./services/streamStatusPoller.js";
+import { ensureSubscriptions, readEventSubConfig } from "./services/eventSubManager.js";
 import { TwitchAPIClient } from "./api/TwitchAPIClient.js";
 import botState from "./state/BotState.js";
 import { setupDiscordHandlers } from "./handlers/discordHandlers.js";
@@ -310,152 +312,203 @@ async function start() {
     await fs.rename(tmpPath, statusPath);
   }
 
+  // Handles stream.online / stream.offline / channel.raid, whether the event came
+  // from an EventSub webhook or from the Helix status poller (source = "poll").
+  async function handleStreamEvent(payload, source = "eventsub") {
+    const type = payload?.subscription?.type || "unknown";
+    const broadcasterName =
+      payload?.event?.broadcaster_user_name || payload?.event?.broadcaster_user_login || "unknown";
+    if (source === "poll") {
+      console.log(`Stream status poll: ${type} for ${broadcasterName}`);
+    } else {
+      console.log(`EventSub notification: ${type} for ${broadcasterName}`);
+    }
+
+    if (type === "stream.online") {
+      console.log(`${broadcasterName} went live on Twitch`);
+      botState.setStreamStatus(broadcasterName.toLowerCase(), "online");
+      writeStreamStatus(broadcasterName.toLowerCase(), true).catch((err) =>
+        console.error("Failed to write stream status:", err)
+      );
+      lastOnlineTimestamp.set(broadcasterName.toLowerCase(), Date.now());
+
+      // Cancel any pending offline alert (handles offline→online restart order)
+      const pendingTimer = pendingOfflineTimers.get(broadcasterName.toLowerCase());
+      if (pendingTimer) {
+        clearTimeout(pendingTimer);
+        pendingOfflineTimers.delete(broadcasterName.toLowerCase());
+        console.log(`Cancelled pending offline alert for ${broadcasterName} (stream restart)`);
+      }
+
+      // Edit the offline message if it exists
+      const offlineMsg = botState.getOfflineMessage(broadcasterName.toLowerCase());
+      if (offlineMsg) {
+        try {
+          const channel = await discordClient.channels.fetch(offlineMsg.channelId);
+          const message = await channel.messages.fetch(offlineMsg.messageId);
+          // Strikethrough original content (after [SYSTEM] prefix) and add "online again"
+          const originalText = offlineMsg.originalContent.replace("[SYSTEM] ", "");
+          await message.edit(`[SYSTEM] ~~${originalText}~~ online again`);
+          botState.clearOfflineMessage(broadcasterName.toLowerCase());
+        } catch (error) {
+          console.error("Failed to edit offline message:", error);
+        }
+      }
+
+      const freezeChannel = process.env.FREEZE_CHANNEL?.toLowerCase();
+      if (freezeChannel && broadcasterName.toLowerCase() === freezeChannel) {
+        freezeOnlineSignal();
+      }
+    } else if (type === "stream.offline") {
+      console.log(`${broadcasterName} went offline on Twitch`);
+      botState.setStreamStatus(broadcasterName.toLowerCase(), "offline");
+      writeStreamStatus(broadcasterName.toLowerCase(), false).catch((err) =>
+        console.error("Failed to write stream status:", err)
+      );
+
+      const offlineAlertChannels = process.env.OFFLINE_ALERT_CHANNELS?.split(",")
+        .map((c) => c.trim().toLowerCase())
+        .filter(Boolean);
+
+      if (
+        offlineAlertChannels?.length &&
+        !offlineAlertChannels.includes(broadcasterName.toLowerCase())
+      ) {
+        console.log(`Skipping offline alert - ${broadcasterName} not in OFFLINE_ALERT_CHANNELS`);
+        return;
+      }
+
+      const raidSuppressMs = (parseInt(process.env.RAID_SUPPRESS_WINDOW_SECONDS, 10) || 30) * 1000;
+      if (botState.hasRecentRaid(broadcasterName, raidSuppressMs)) {
+        console.log(`Skipping offline alert - ${broadcasterName} raided recently`);
+        return;
+      }
+
+      // Delay offline alert to handle stream restarts in either event order:
+      // 1. offline→online (timer cancelled when online arrives)
+      // 2. online→offline within seconds (recent online detected, use longer delay)
+      const restartSuppressMs =
+        (parseInt(process.env.RESTART_SUPPRESS_WINDOW_SECONDS, 10) || 60) * 1000;
+      const lastOnline = lastOnlineTimestamp.get(broadcasterName.toLowerCase());
+      const recentRestart = lastOnline && Date.now() - lastOnline < restartSuppressMs;
+
+      const offlineDelayMs = restartSuppressMs;
+
+      if (recentRestart) {
+        console.log(
+          `${broadcasterName} had a stream.online ${Date.now() - lastOnline}ms ago (possible restart) - delaying offline alert by ${offlineDelayMs / 1000}s`
+        );
+      } else {
+        console.log(`Delaying offline alert for ${broadcasterName} by ${offlineDelayMs / 1000}s`);
+      }
+
+      const existing = pendingOfflineTimers.get(broadcasterName.toLowerCase());
+      if (existing) clearTimeout(existing);
+
+      const timerId = setTimeout(async () => {
+        pendingOfflineTimers.delete(broadcasterName.toLowerCase());
+
+        // Re-check — stream may have come back online during the delay
+        if (botState.metrics.streamStatusByChannel[broadcasterName.toLowerCase()] === "online") {
+          console.log(`Skipping offline alert - ${broadcasterName} came back online during delay`);
+          return;
+        }
+
+        const mention = STREAM_ALERT_ROLE_ID ? `<@&${STREAM_ALERT_ROLE_ID}> ` : "";
+        const content = `${mention}${broadcasterName} has gone offline`;
+
+        try {
+          const messages = await relaySystemMessage(content, DISCORD_CHANNEL_ID);
+          // Store first message ID for later editing when stream comes back online
+          if (messages?.length > 0) {
+            botState.setOfflineMessage(
+              broadcasterName.toLowerCase(),
+              messages[0].id,
+              messages[0].channel.id,
+              messages[0].content
+            );
+          }
+        } catch (error) {
+          console.error("Failed to send offline stream alert", error);
+        }
+      }, offlineDelayMs);
+
+      pendingOfflineTimers.set(broadcasterName.toLowerCase(), timerId);
+    } else if (type === "channel.raid") {
+      const fromBroadcaster =
+        payload?.event?.from_broadcaster_user_name || payload?.event?.from_broadcaster_user_login;
+      const toBroadcaster =
+        payload?.event?.to_broadcaster_user_name || payload?.event?.to_broadcaster_user_login;
+      const viewers = payload?.event?.viewers || 0;
+      console.log(`Raid: ${fromBroadcaster} raided ${toBroadcaster} with ${viewers} viewers`);
+
+      if (fromBroadcaster) {
+        botState.recordRaid(fromBroadcaster);
+        // Emit raid:incoming event for dashboard with full data
+        botState.emit("raid:incoming", {
+          from: fromBroadcaster,
+          to: toBroadcaster,
+          viewers: viewers,
+          timestamp: Date.now()
+        });
+      }
+    }
+  }
+
+  // EventSub self-repair: Twitch revokes webhook subscriptions after repeated
+  // delivery failures and the revocation notice goes to the same unreachable
+  // callback, so the bot re-checks its subscriptions at startup, on a timer,
+  // and whenever a revocation does get through.
+  const eventSubConfig = readEventSubConfig(process.env);
+  let eventSubReconcileRunning = false;
+  async function reconcileEventSub(reason) {
+    if (!eventSubConfig.canManage || eventSubReconcileRunning) return;
+    eventSubReconcileRunning = true;
+    try {
+      console.log(`EventSub: checking subscriptions (${reason})`);
+      await ensureSubscriptions({
+        clientId: eventSubConfig.clientId,
+        clientSecret: eventSubConfig.clientSecret,
+        callbackUrl: eventSubConfig.callbackUrl,
+        secret: eventSubConfig.secret,
+        broadcasters: eventSubConfig.broadcasters,
+        logger: console
+      });
+    } catch (error) {
+      console.error(`EventSub: subscription check failed: ${error?.message || error}`);
+    } finally {
+      eventSubReconcileRunning = false;
+    }
+  }
+
   const webServer = await startWebServer(process.env, {
     logger: console,
     twitchAPIClient,
     updateBlacklistFromEntries,
-    onEvent: async (payload) => {
-      const type = payload?.subscription?.type || "unknown";
-      const broadcasterName =
-        payload?.event?.broadcaster_user_name ||
-        payload?.event?.broadcaster_user_login ||
-        "unknown";
-      console.log(`EventSub notification: ${type} for ${broadcasterName}`);
-
-      if (type === "stream.online") {
-        console.log(`${broadcasterName} went live on Twitch`);
-        botState.setStreamStatus(broadcasterName.toLowerCase(), "online");
-        writeStreamStatus(broadcasterName.toLowerCase(), true).catch((err) =>
-          console.error("Failed to write stream status:", err)
-        );
-        lastOnlineTimestamp.set(broadcasterName.toLowerCase(), Date.now());
-
-        // Cancel any pending offline alert (handles offline→online restart order)
-        const pendingTimer = pendingOfflineTimers.get(broadcasterName.toLowerCase());
-        if (pendingTimer) {
-          clearTimeout(pendingTimer);
-          pendingOfflineTimers.delete(broadcasterName.toLowerCase());
-          console.log(`Cancelled pending offline alert for ${broadcasterName} (stream restart)`);
-        }
-
-        // Edit the offline message if it exists
-        const offlineMsg = botState.getOfflineMessage(broadcasterName.toLowerCase());
-        if (offlineMsg) {
-          try {
-            const channel = await discordClient.channels.fetch(offlineMsg.channelId);
-            const message = await channel.messages.fetch(offlineMsg.messageId);
-            // Strikethrough original content (after [SYSTEM] prefix) and add "online again"
-            const originalText = offlineMsg.originalContent.replace("[SYSTEM] ", "");
-            await message.edit(`[SYSTEM] ~~${originalText}~~ online again`);
-            botState.clearOfflineMessage(broadcasterName.toLowerCase());
-          } catch (error) {
-            console.error("Failed to edit offline message:", error);
-          }
-        }
-
-        const freezeChannel = process.env.FREEZE_CHANNEL?.toLowerCase();
-        if (freezeChannel && broadcasterName.toLowerCase() === freezeChannel) {
-          freezeOnlineSignal();
-        }
-      } else if (type === "stream.offline") {
-        console.log(`${broadcasterName} went offline on Twitch`);
-        botState.setStreamStatus(broadcasterName.toLowerCase(), "offline");
-        writeStreamStatus(broadcasterName.toLowerCase(), false).catch((err) =>
-          console.error("Failed to write stream status:", err)
-        );
-
-        const offlineAlertChannels = process.env.OFFLINE_ALERT_CHANNELS?.split(",")
-          .map((c) => c.trim().toLowerCase())
-          .filter(Boolean);
-
-        if (
-          offlineAlertChannels?.length &&
-          !offlineAlertChannels.includes(broadcasterName.toLowerCase())
-        ) {
-          console.log(`Skipping offline alert - ${broadcasterName} not in OFFLINE_ALERT_CHANNELS`);
-          return;
-        }
-
-        const raidSuppressMs =
-          (parseInt(process.env.RAID_SUPPRESS_WINDOW_SECONDS, 10) || 30) * 1000;
-        if (botState.hasRecentRaid(broadcasterName, raidSuppressMs)) {
-          console.log(`Skipping offline alert - ${broadcasterName} raided recently`);
-          return;
-        }
-
-        // Delay offline alert to handle stream restarts in either event order:
-        // 1. offline→online (timer cancelled when online arrives)
-        // 2. online→offline within seconds (recent online detected, use longer delay)
-        const restartSuppressMs =
-          (parseInt(process.env.RESTART_SUPPRESS_WINDOW_SECONDS, 10) || 60) * 1000;
-        const lastOnline = lastOnlineTimestamp.get(broadcasterName.toLowerCase());
-        const recentRestart = lastOnline && Date.now() - lastOnline < restartSuppressMs;
-
-        const offlineDelayMs = restartSuppressMs;
-
-        if (recentRestart) {
-          console.log(
-            `${broadcasterName} had a stream.online ${Date.now() - lastOnline}ms ago (possible restart) - delaying offline alert by ${offlineDelayMs / 1000}s`
-          );
-        } else {
-          console.log(`Delaying offline alert for ${broadcasterName} by ${offlineDelayMs / 1000}s`);
-        }
-
-        const existing = pendingOfflineTimers.get(broadcasterName.toLowerCase());
-        if (existing) clearTimeout(existing);
-
-        const timerId = setTimeout(async () => {
-          pendingOfflineTimers.delete(broadcasterName.toLowerCase());
-
-          // Re-check — stream may have come back online during the delay
-          if (botState.metrics.streamStatusByChannel[broadcasterName.toLowerCase()] === "online") {
-            console.log(
-              `Skipping offline alert - ${broadcasterName} came back online during delay`
-            );
-            return;
-          }
-
-          const mention = STREAM_ALERT_ROLE_ID ? `<@&${STREAM_ALERT_ROLE_ID}> ` : "";
-          const content = `${mention}${broadcasterName} has gone offline`;
-
-          try {
-            const messages = await relaySystemMessage(content, DISCORD_CHANNEL_ID);
-            // Store first message ID for later editing when stream comes back online
-            if (messages?.length > 0) {
-              botState.setOfflineMessage(
-                broadcasterName.toLowerCase(),
-                messages[0].id,
-                messages[0].channel.id,
-                messages[0].content
-              );
-            }
-          } catch (error) {
-            console.error("Failed to send offline stream alert", error);
-          }
-        }, offlineDelayMs);
-
-        pendingOfflineTimers.set(broadcasterName.toLowerCase(), timerId);
-      } else if (type === "channel.raid") {
-        const fromBroadcaster =
-          payload?.event?.from_broadcaster_user_name || payload?.event?.from_broadcaster_user_login;
-        const toBroadcaster =
-          payload?.event?.to_broadcaster_user_name || payload?.event?.to_broadcaster_user_login;
-        const viewers = payload?.event?.viewers || 0;
-        console.log(`Raid: ${fromBroadcaster} raided ${toBroadcaster} with ${viewers} viewers`);
-
-        if (fromBroadcaster) {
-          botState.recordRaid(fromBroadcaster);
-          // Emit raid:incoming event for dashboard with full data
-          botState.emit("raid:incoming", {
-            from: fromBroadcaster,
-            to: toBroadcaster,
-            viewers: viewers,
-            timestamp: Date.now()
-          });
-        }
-      }
+    onEvent: (payload) => handleStreamEvent(payload, "eventsub"),
+    onRevocation: () => {
+      // Give Twitch a moment, then recreate whatever was revoked
+      setTimeout(() => reconcileEventSub("revocation received"), 5000);
     }
   });
+
+  if (eventSubConfig.enabled && !eventSubConfig.canManage) {
+    console.warn(
+      `EventSub: automatic subscription management disabled, missing ${eventSubConfig.missing.join(", ")}`
+    );
+  }
+
+  if (webServer && eventSubConfig.canManage) {
+    // Let the web server accept the verification challenge before creating subscriptions
+    setTimeout(() => reconcileEventSub("startup"), 3000);
+    if (eventSubConfig.reconcileMinutes > 0) {
+      const reconcileTimer = setInterval(
+        () => reconcileEventSub("periodic check"),
+        eventSubConfig.reconcileMinutes * 60 * 1000
+      );
+      reconcileTimer.unref?.();
+    }
+  }
 
   // Start freeze monitor
   const freezeEnv = { ...process.env };
@@ -545,6 +598,34 @@ async function start() {
     }
   } catch (error) {
     console.error("Failed to initialize stream status:", error.message);
+  }
+
+  // Helix polling safety net: catches stream state changes that EventSub missed
+  // (network outage, revoked subscription) and feeds them through the same handler.
+  const pollSeconds = Number.parseInt(process.env.STREAM_STATUS_POLL_SECONDS, 10);
+  const pollIntervalMs = (Number.isFinite(pollSeconds) ? pollSeconds : 60) * 1000;
+  if (pollIntervalMs > 0) {
+    const streamStatusPoller = createStreamStatusPoller({
+      twitchAPIClient,
+      channels: botState.twitchChannels,
+      intervalMs: pollIntervalMs,
+      logger: console,
+      getKnownLive: (channel) => {
+        const status = botState.metrics.streamStatusByChannel?.[channel];
+        if (status === "online" || status === "frozen") return true;
+        if (status === "offline") return false;
+        return null;
+      },
+      onChange: (channel, live) =>
+        handleStreamEvent(
+          {
+            subscription: { type: live ? "stream.online" : "stream.offline" },
+            event: { broadcaster_user_login: channel }
+          },
+          "poll"
+        )
+    });
+    streamStatusPoller.start();
   }
 
   // Schedule token refresh

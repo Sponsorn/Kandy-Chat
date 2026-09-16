@@ -92,6 +92,17 @@ No build step — code runs directly via Node.js ESM modules.
 - `buildNormalV2Message()`, `buildSuspiciousV2Message()`, `buildDisabledV2Message()`, `buildDeletedV2Message()`
 - Used when `MODERATION_USE_BUTTONS=true`
 
+#### [src/services/eventSubManager.js](src/services/eventSubManager.js)
+- Lists, creates and deletes EventSub webhook subscriptions with an app access token
+- `ensureSubscriptions()` reconciles registered subscriptions with the required set (stream.online, stream.offline, channel.raid per `EVENTSUB_BROADCASTER`): removes revoked/duplicate ones, creates missing ones
+- `planReconciliation()` is the pure decision function (unit tested)
+- Called by `src/index.js` at startup, every `EVENTSUB_RECONCILE_MINUTES`, and when a revocation webhook arrives; also backs `deploy-eventsub.js` (`--list`, `--dry-run`)
+
+#### [src/services/streamStatusPoller.js](src/services/streamStatusPoller.js)
+- Polls Helix stream status every `STREAM_STATUS_POLL_SECONDS` as a safety net for missed EventSub events
+- Reports a change only after two consecutive polls disagree with the bot's known state (Helix lags EventSub by up to a couple of minutes)
+- `src/index.js` feeds confirmed changes through the same `handleStreamEvent()` used for EventSub, so `data/stream-status.json`, dashboard state and offline alerts all update
+
 #### [src/services/tokenService.js](src/services/tokenService.js)
 - Token refresh orchestration and scheduling
 - Persists both access and refresh tokens to `data/tokens.json` (shared with youtube-relay)
@@ -216,7 +227,7 @@ Critical dependencies between env vars:
 - `data/blacklist-metadata.json`: Full Twitch blocked term metadata from imports
 - `data/tokens.json`: Shared access + refresh tokens (written by main bot, read by youtube-relay)
 - `data/emoji-mappings.json`: YouTube emoji → text mappings (managed via dashboard, read by youtube-relay)
-- `data/stream-status.json`: Per-channel live status (written by main bot on EventSub events, read by youtube-relay)
+- `data/stream-status.json`: Per-channel live status (written by main bot on EventSub events, at startup, and by the Helix status poller; read by youtube-relay)
 
 ## Common Patterns
 
@@ -251,6 +262,8 @@ Usage: call methods like `twitchAPIClient.deleteMessage()`, `twitchAPIClient.ban
   - `tests/filters.test.js`: `buildFilters()`, `shouldBlockMessage()`, `normalizeMessage()`
   - `tests/permissions.test.js`: `hasPrivilegedRole()`, `hasAdminRole()`, `ADMIN_ROLE_IDS`, `MOD_ROLE_IDS`
   - `tests/configValidator.test.js`: `validateConfig()` — required fields, Discord IDs, auth modes, channel mapping, EventSub, freeze monitor
+  - `tests/eventSubManager.test.js`: `planReconciliation()`, `readEventSubConfig()`, `ensureSubscriptions()` with a mocked fetch
+  - `tests/streamStatusPoller.test.js`: confirmation counting, per-channel handling, timer start/stop
 
 ## YouTube Relay (`youtube-relay/`)
 

@@ -182,6 +182,25 @@ ngrok http 8080
 npm run deploy-eventsub
 ```
 
+The bot also manages its subscriptions itself: at startup and every `EVENTSUB_RECONCILE_MINUTES`
+(default 60) it lists the subscriptions registered for the client id, removes revoked or broken
+ones, and creates any that are missing. Twitch revokes a subscription after repeated delivery
+failures (for example during a network outage) and sends the revocation notice to the same
+unreachable callback, so without this check the bot would silently stop receiving events.
+
+Useful commands:
+
+```bash
+npm run deploy-eventsub -- --list      # show every subscription and its status
+npm run deploy-eventsub -- --dry-run   # report what would be created/removed
+```
+
+As a further safety net the bot polls the Helix streams endpoint every
+`STREAM_STATUS_POLL_SECONDS` (default 60). A stream state that differs from what EventSub last
+reported, on two consecutive polls, is fed through the same online/offline handler, so the
+dashboard, offline alerts and `data/stream-status.json` (read by youtube-relay) recover even if
+an event was missed.
+
 ## Freeze monitor (optional)
 
 Detects a frozen Twitch stream by sampling frames from the HLS URL.

@@ -44,7 +44,7 @@ async function loadExpress() {
  * Handles EventSub webhooks, dashboard API, and static files
  */
 export async function startWebServer(env, options = {}) {
-  const { logger, onEvent, twitchAPIClient, updateBlacklistFromEntries } = options;
+  const { logger, onEvent, onRevocation, twitchAPIClient, updateBlacklistFromEntries } = options;
 
   const dashboardEnabled = parseBool(env.DASHBOARD_ENABLED, false);
   const eventsubEnabled = parseBool(env.EVENTSUB_ENABLED, false);
@@ -147,6 +147,16 @@ export async function startWebServer(env, options = {}) {
 
       if (messageType === "notification") {
         onEvent?.(req.body);
+        res.sendStatus(204);
+        return;
+      }
+
+      if (messageType === "revocation") {
+        const sub = req.body?.subscription || {};
+        logger?.warn(
+          `EventSub: subscription ${sub.type || "unknown"} revoked (${sub.status || "unknown reason"})`
+        );
+        onRevocation?.(req.body);
         res.sendStatus(204);
         return;
       }
@@ -272,4 +282,3 @@ export async function startWebServer(env, options = {}) {
 
   return server;
 }
-

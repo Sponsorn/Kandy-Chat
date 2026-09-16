@@ -1,116 +1,68 @@
 import "dotenv/config";
+import {
+  ensureSubscriptions,
+  getAppAccessToken,
+  listSubscriptions,
+  readEventSubConfig
+} from "./src/services/eventSubManager.js";
 
-const {
-  TWITCH_CLIENT_ID,
-  TWITCH_CLIENT_SECRET,
-  EVENTSUB_PUBLIC_URL,
-  EVENTSUB_CALLBACK_PATH,
-  EVENTSUB_SECRET,
-  EVENTSUB_BROADCASTER
-} = process.env;
+/**
+ * Manage EventSub webhook subscriptions.
+ *
+ *   npm run deploy-eventsub            create missing subscriptions, remove revoked/stale ones
+ *   npm run deploy-eventsub -- --list  show every subscription registered for this client id
+ *   npm run deploy-eventsub -- --dry-run  report what would change without changing anything
+ *
+ * The running bot performs the same reconciliation at startup and on a timer
+ * (see EVENTSUB_RECONCILE_MINUTES), so this script is mainly for a first-time
+ * setup or for inspecting state from the command line.
+ */
 
-if (!TWITCH_CLIENT_ID || !TWITCH_CLIENT_SECRET) {
-  throw new Error("Missing TWITCH_CLIENT_ID or TWITCH_CLIENT_SECRET");
+const args = new Set(process.argv.slice(2));
+const config = readEventSubConfig({ ...process.env, EVENTSUB_ENABLED: "true" });
+
+if (config.missing.length > 0) {
+  throw new Error(`Missing ${config.missing.join(", ")}`);
 }
 
-if (!EVENTSUB_PUBLIC_URL || !EVENTSUB_SECRET) {
-  throw new Error("Missing EVENTSUB_PUBLIC_URL or EVENTSUB_SECRET");
-}
+async function list() {
+  const accessToken = await getAppAccessToken(config.clientId, config.clientSecret);
+  const subscriptions = await listSubscriptions(config.clientId, accessToken);
 
-if (!EVENTSUB_BROADCASTER) {
-  throw new Error("Missing EVENTSUB_BROADCASTER (channel name)");
-}
-
-const callbackPath = EVENTSUB_CALLBACK_PATH || "/eventsub";
-const callbackUrl = `${EVENTSUB_PUBLIC_URL.replace(/\/$/, "")}${callbackPath}`;
-
-async function helixRequest(accessToken, path) {
-  const response = await fetch(`https://api.twitch.tv/helix/${path}`, {
-    headers: {
-      "Client-ID": TWITCH_CLIENT_ID,
-      Authorization: `Bearer ${accessToken}`
-    }
-  });
-  if (!response.ok) {
-    throw new Error(`Helix request failed: ${response.status}`);
-  }
-  return response.json();
-}
-
-async function createSubscription(accessToken, type, condition) {
-  const body = {
-    type,
-    version: "1",
-    condition,
-    transport: {
-      method: "webhook",
-      callback: callbackUrl,
-      secret: EVENTSUB_SECRET
-    }
-  };
-
-  const response = await fetch("https://api.twitch.tv/helix/eventsub/subscriptions", {
-    method: "POST",
-    headers: {
-      "Client-ID": TWITCH_CLIENT_ID,
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(body)
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`EventSub create failed: ${response.status} ${text}`);
-  }
-}
-
-async function getAppAccessToken() {
-  const params = new URLSearchParams({
-    client_id: TWITCH_CLIENT_ID,
-    client_secret: TWITCH_CLIENT_SECRET,
-    grant_type: "client_credentials"
-  });
-
-  const response = await fetch("https://id.twitch.tv/oauth2/token", {
-    method: "POST",
-    body: params
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to get app access token: ${response.status}`);
+  if (subscriptions.length === 0) {
+    console.log("No EventSub subscriptions registered for this client id");
+    return;
   }
 
-  const data = await response.json();
-  return data.access_token;
+  console.log(`Callback expected by this deployment: ${config.callbackUrl}\n`);
+  for (const sub of subscriptions) {
+    const callback = sub.transport?.callback || "(no callback)";
+    const marker = callback === config.callbackUrl ? "" : "  <- different callback";
+    console.log(`${sub.status.padEnd(32)} ${sub.type.padEnd(16)} ${JSON.stringify(sub.condition)}`);
+    console.log(`${"".padEnd(32)} id=${sub.id}`);
+    console.log(`${"".padEnd(32)} ${callback}${marker}`);
+  }
 }
 
 async function main() {
-  const accessToken = await getAppAccessToken();
-
-  // Support comma-separated list of broadcasters
-  const broadcasters = EVENTSUB_BROADCASTER.split(",")
-    .map((b) => b.trim())
-    .filter(Boolean);
-
-  for (const broadcaster of broadcasters) {
-    console.log(`Setting up EventSub for ${broadcaster}...`);
-
-    const users = await helixRequest(accessToken, `users?login=${encodeURIComponent(broadcaster)}`);
-    const userId = users?.data?.[0]?.id;
-    if (!userId) {
-      console.error(`Unable to resolve broadcaster id for ${broadcaster}, skipping`);
-      continue;
-    }
-
-    await createSubscription(accessToken, "stream.online", { broadcaster_user_id: userId });
-    await createSubscription(accessToken, "stream.offline", { broadcaster_user_id: userId });
-    await createSubscription(accessToken, "channel.raid", { from_broadcaster_user_id: userId });
-
-    console.log(`✓ EventSub subscriptions created for ${broadcaster} (ID: ${userId})`);
+  if (args.has("--list")) {
+    await list();
+    return;
   }
 
-  console.log("\nAll EventSub subscriptions created successfully");
+  const summary = await ensureSubscriptions({
+    clientId: config.clientId,
+    clientSecret: config.clientSecret,
+    callbackUrl: config.callbackUrl,
+    secret: config.secret,
+    broadcasters: config.broadcasters,
+    dryRun: args.has("--dry-run"),
+    logger: console
+  });
+
+  console.log(
+    `\nDone: created ${summary.created}, removed ${summary.removed}, kept ${summary.kept}`
+  );
 }
 
 main().catch((error) => {
