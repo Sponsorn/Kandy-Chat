@@ -132,14 +132,18 @@ export async function startWebServer(env, options = {}) {
       const messageId = getHeader(req, "Twitch-Eventsub-Message-Id");
       const timestamp = getHeader(req, "Twitch-Eventsub-Message-Timestamp");
       const signature = getHeader(req, "Twitch-Eventsub-Message-Signature");
+      const messageType = getHeader(req, "Twitch-Eventsub-Message-Type");
+      const subscriptionType = req.body?.subscription?.type || "unknown";
 
       if (!verifySignature(eventsubSecret, messageId, timestamp, req.rawBody || "", signature)) {
-        logger?.warn("EventSub: signature verification failed");
+        logger?.warn(
+          `EventSub: signature verification failed (type=${messageType || "none"}, subscription=${subscriptionType}, from=${req.ip})`
+        );
         res.sendStatus(403);
         return;
       }
 
-      const messageType = getHeader(req, "Twitch-Eventsub-Message-Type");
+      logger?.log(`EventSub: received ${messageType || "unknown"} for ${subscriptionType}`);
       if (messageType === "webhook_callback_verification") {
         res.status(200).send(req.body?.challenge ?? "");
         return;
@@ -265,6 +269,11 @@ export async function startWebServer(env, options = {}) {
 
   // Error handling
   app.use((err, req, res, next) => {
+    if (err?.type === "entity.parse.failed" || err?.status === 400) {
+      logger?.warn(`Bad request on ${req.method} ${req.path}: ${err.message}`);
+      res.status(400).json({ error: "Bad request" });
+      return;
+    }
     console.error("Server error:", err);
     res.status(500).json({ error: "Internal server error" });
   });
