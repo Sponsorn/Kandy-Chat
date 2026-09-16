@@ -235,3 +235,75 @@ def test_collapse_space_between_text_and_emoji():
     msg = "Love Mom:yougotthis::yougotthis::thanksdoc::thanksdoc:"
     result = converter.collapse_emojis(msg)
     assert result == "Love Mom :yougotthis: x2 :thanksdoc: x2"
+
+
+# --- unmapped emoji tracking ---
+
+
+def test_convert_records_unmapped_emojis(tmp_path):
+    """Shortcodes without a mapping are recorded with a count and sample."""
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter(str(tmp_path))
+    converter._mappings = {":heart:": "❤️"}
+
+    converter.convert("hi :heart: :mystery: :mystery:")
+    converter.convert(":mystery: again and :other:")
+
+    unmapped = converter.unmapped
+    assert set(unmapped) == {":mystery:", ":other:"}
+    # Counted once per message, not per occurrence
+    assert unmapped[":mystery:"]["count"] == 2
+    assert unmapped[":other:"]["count"] == 1
+    assert unmapped[":mystery:"]["sample"] == "hi :heart: :mystery: :mystery:"
+    assert ":heart:" not in unmapped
+
+
+def test_unmapped_is_written_to_disk_and_reloaded(tmp_path):
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter(str(tmp_path))
+    converter._mappings = {}
+    converter.convert("look :new_one:")
+    converter.flush_unmapped(force=True)
+
+    path = tmp_path / "emoji-unmapped.json"
+    assert path.exists()
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data[":new_one:"]["count"] == 1
+
+    # A fresh converter picks the counts back up
+    again = EmojiConverter(str(tmp_path))
+    again._mappings = {}
+    again.convert("look :new_one:")
+    assert again.unmapped[":new_one:"]["count"] == 2
+
+
+def test_reload_drops_unmapped_that_got_mapped(tmp_path):
+    """Once the dashboard maps a shortcode it disappears from the unmapped list."""
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter(str(tmp_path))
+    converter._mappings = {}
+    converter.convert("see :soon_mapped: and :still_unmapped:")
+
+    (tmp_path / "emoji-mappings.json").write_text(
+        json.dumps({":soon_mapped:": "OK"}), encoding="utf-8"
+    )
+    converter.reload()
+
+    assert ":soon_mapped:" not in converter.unmapped
+    assert ":still_unmapped:" in converter.unmapped
+    on_disk = json.loads((tmp_path / "emoji-unmapped.json").read_text(encoding="utf-8"))
+    assert ":soon_mapped:" not in on_disk
+
+
+def test_unmapped_list_is_bounded(tmp_path):
+    from emoji_converter import EmojiConverter
+    import emoji_converter
+
+    converter = EmojiConverter(str(tmp_path))
+    converter._mappings = {}
+    for i in range(emoji_converter._UNMAPPED_MAX + 25):
+        converter.record_unmapped(f":e{i}:")
+    assert len(converter.unmapped) == emoji_converter._UNMAPPED_MAX

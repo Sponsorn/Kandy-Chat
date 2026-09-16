@@ -3,6 +3,8 @@ import { join } from "node:path";
 
 const storeDir = join(process.cwd(), "data");
 const storePath = join(storeDir, "emoji-mappings.json");
+// Written by youtube-relay: shortcodes seen in YouTube chat that had no mapping
+const unmappedPath = join(storeDir, "emoji-unmapped.json");
 
 const DEFAULT_MAPPINGS = {
   ":thumbsup:": "\uD83D\uDC4D",
@@ -71,4 +73,42 @@ async function removeEmojiMapping(emoji) {
   return { removed: true, mappings };
 }
 
-export { loadEmojiMappings, addEmojiMapping, removeEmojiMapping, DEFAULT_MAPPINGS };
+/**
+ * Load the unmapped emojis recorded by youtube-relay, minus anything that has
+ * been mapped since. Sorted by how often they were seen, most frequent first.
+ * @returns {Promise<Array<{ emoji: string, count: number, lastSeen: string|null, sample: string }>>}
+ */
+async function loadUnmappedEmojis() {
+  let raw;
+  try {
+    raw = JSON.parse(await fs.readFile(unmappedPath, "utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT" || error instanceof SyntaxError) return [];
+    throw error;
+  }
+  if (!raw || typeof raw !== "object") return [];
+
+  const mappings = await loadEmojiMappings();
+  const entries = [];
+  for (const [emoji, entry] of Object.entries(raw)) {
+    if (emoji in mappings) continue;
+    if (!entry || typeof entry !== "object") continue;
+    entries.push({
+      emoji,
+      count: Number.isFinite(entry.count) ? entry.count : 0,
+      lastSeen: typeof entry.last_seen === "string" ? entry.last_seen : null,
+      sample: typeof entry.sample === "string" ? entry.sample : ""
+    });
+  }
+
+  entries.sort((a, b) => b.count - a.count || (b.lastSeen || "").localeCompare(a.lastSeen || ""));
+  return entries;
+}
+
+export {
+  loadEmojiMappings,
+  addEmojiMapping,
+  removeEmojiMapping,
+  loadUnmappedEmojis,
+  DEFAULT_MAPPINGS
+};

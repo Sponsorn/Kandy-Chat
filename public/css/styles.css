@@ -836,6 +836,54 @@ body {
   }
 }
 
+/* Unmapped emojis (seen in YouTube chat, no mapping yet) */
+.unmapped-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.unmapped-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+}
+
+.unmapped-row code {
+  font-size: 0.8125rem;
+}
+
+.unmapped-meta {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  flex: 1;
+  min-width: 8rem;
+}
+
+.unmapped-sample {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.unmapped-actions {
+  display: inline-flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.unmapped-actions .form-input {
+  width: 9rem;
+}
+
 /* Emoji Mappings Editor */
 .emoji-group {
   padding: 0.75rem;

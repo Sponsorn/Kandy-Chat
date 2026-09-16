@@ -5,6 +5,7 @@ import queue
 import re
 import time
 import threading
+from collections import deque
 import requests
 import yt_dlp
 from datetime import datetime, timezone
@@ -18,6 +19,33 @@ _INNERTUBE_CONTEXT = {
     }
 }
 
+_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0.0.0 Safari/537.36"
+)
+
+# (connect, read) timeouts for HTTP calls to YouTube
+_HTTP_TIMEOUT = (5, 15)
+
+# How many times a poll may fail in a row (same continuation token) before we
+# give up on the session and rediscover the stream.
+_MAX_POLL_FAILURES = 5
+_POLL_RETRY_DELAYS = [2, 4, 8, 15, 30]
+
+# Flat wait while the channel has no live stream (Twitch may be live before YouTube)
+_NO_STREAM_WAIT = 30
+
+# Backoff for real errors (network down, yt-dlp broken, ...)
+_ERROR_BACKOFF_START = 5
+_ERROR_BACKOFF_MAX = 120
+
+# Log a heartbeat this often while connected
+_HEARTBEAT_INTERVAL = 300
+
+# Remember this many message ids to drop replays after a reconnect
+_SEEN_IDS_MAX = 1000
+
 
 def _log(msg):
     now = datetime.now(timezone.utc)
@@ -25,11 +53,27 @@ def _log(msg):
     print(f"[{ts}] {msg}", flush=True)
 
 
+class TransientPollError(Exception):
+    """A poll failed in a way that is worth retrying with the same token."""
+
+
 class YouTubeChatReader:
     """Reads YouTube live chat messages.
 
     Uses yt-dlp to find the live stream, then polls YouTube's
     innertube API for chat messages. No API key required.
+
+    Resilience:
+    - transient poll errors (timeouts, 5xx, 429, bad JSON, missing
+      continuation) retry the same continuation token a few times before the
+      stream is rediscovered, so a hiccup does not lose the chat position
+    - on rediscovery the last known video id is tried first, yt-dlp only runs
+      when that fails
+    - a channel with no live stream is polled at a flat interval instead of
+      exponential backoff
+    - each start() creates a fresh stop event and generation number, so a
+      stop()/start() cycle can never leave two reader threads feeding the queue
+    - message ids are remembered so a reconnect does not replay messages
     """
 
     def __init__(self, channel_url):
@@ -37,25 +81,55 @@ class YouTubeChatReader:
         self.queue = queue.Queue()
         self.running = False
         self._thread = None
+        self._stop_event = threading.Event()
+        self._generation = 0
+        self._last_video_id = None
+        self._seen_ids = set()
+        self._seen_order = deque()
+        # Stats for logging / debugging
+        self.stats = {
+            "polls": 0,
+            "messages": 0,
+            "reconnects": 0,
+            "poll_retries": 0,
+            "last_message_at": None,
+            "connected_at": None,
+        }
+
+    # ------------------------------------------------------------------ lifecycle
 
     def start(self):
         """Start the background chat reader thread."""
         if self._thread and self._thread.is_alive():
             self.stop()
             self._thread.join(timeout=10)
+            if self._thread.is_alive():
+                _log("Previous YouTube reader thread still busy; it will exit on its own")
+
+        self._generation += 1
+        self._stop_event = threading.Event()
         self.running = True
+
         # Clear the queue so stale messages from before offline aren't relayed
         while not self.queue.empty():
             try:
                 self.queue.get_nowait()
             except Exception:
                 break
-        self._thread = threading.Thread(target=self._read_loop, daemon=True)
+
+        self._thread = threading.Thread(
+            target=self._read_loop,
+            args=(self._generation, self._stop_event),
+            daemon=True,
+        )
         self._thread.start()
 
     def stop(self):
         """Signal the reader thread to stop."""
         self.running = False
+        self._stop_event.set()
+
+    # ------------------------------------------------------------------ discovery
 
     def _find_live_video_id(self):
         """Use yt-dlp to find the active live stream video ID."""
@@ -84,15 +158,9 @@ class YouTubeChatReader:
         """Fetch the live chat page and extract continuation + API key."""
         resp = requests.get(
             f"https://www.youtube.com/live_chat?v={video_id}",
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                ),
-            },
+            headers={"User-Agent": _USER_AGENT},
             cookies={"CONSENT": "YES+cb"},
-            timeout=10,
+            timeout=_HTTP_TIMEOUT,
         )
         resp.raise_for_status()
         text = resp.text
@@ -137,33 +205,56 @@ class YouTubeChatReader:
 
         return continuation, api_key
 
+    # ------------------------------------------------------------------ polling
+
+    def _remember_id(self, msg_id):
+        """Return True if the id is new, False if it was seen recently."""
+        if not msg_id:
+            return True
+        if msg_id in self._seen_ids:
+            return False
+        self._seen_ids.add(msg_id)
+        self._seen_order.append(msg_id)
+        while len(self._seen_order) > _SEEN_IDS_MAX:
+            old = self._seen_order.popleft()
+            self._seen_ids.discard(old)
+        return True
+
     def _poll_chat(self, continuation, api_key):
         """Poll for new chat messages.
 
         Returns (messages, new_continuation, timeout_ms).
+        Raises TransientPollError for failures worth retrying with the same token.
         """
         url = "https://www.youtube.com/youtubei/v1/live_chat/get_live_chat"
         if api_key:
             url += f"?key={api_key}"
 
-        resp = requests.post(
-            url,
-            json={
-                "context": _INNERTUBE_CONTEXT,
-                "continuation": continuation,
-            },
-            headers={
-                "Content-Type": "application/json",
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                ),
-            },
-            timeout=10,
-        )
+        try:
+            resp = requests.post(
+                url,
+                json={
+                    "context": _INNERTUBE_CONTEXT,
+                    "continuation": continuation,
+                },
+                headers={
+                    "Content-Type": "application/json",
+                    "User-Agent": _USER_AGENT,
+                },
+                timeout=_HTTP_TIMEOUT,
+            )
+        except requests.exceptions.RequestException as e:
+            raise TransientPollError(f"request failed: {e.__class__.__name__}: {e}") from e
+
+        status = getattr(resp, "status_code", 200)
+        if isinstance(status, int) and (status == 429 or status >= 500):
+            raise TransientPollError(f"HTTP {status}")
         resp.raise_for_status()
-        data = resp.json()
+
+        try:
+            data = resp.json()
+        except ValueError as e:
+            raise TransientPollError(f"invalid JSON: {e}") from e
 
         messages = []
         new_continuation = None
@@ -173,7 +264,8 @@ class YouTubeChatReader:
         live_chat = data.get("continuationContents", {}).get("liveChatContinuation", {})
 
         for cont in live_chat.get("continuations", []):
-            for key in ("invalidationContinuationData", "timedContinuationData"):
+            for key in ("invalidationContinuationData", "timedContinuationData",
+                        "reloadContinuationData"):
                 if key in cont:
                     new_continuation = cont[key].get("continuation")
                     timeout_ms = cont[key].get("timeoutMs", 5000)
@@ -186,6 +278,9 @@ class YouTubeChatReader:
             item = action.get("addChatItemAction", {}).get("item", {})
             renderer = item.get("liveChatTextMessageRenderer")
             if not renderer:
+                continue
+
+            if not self._remember_id(renderer.get("id")):
                 continue
 
             author = renderer.get("authorName", {}).get("simpleText", "Unknown")
@@ -217,58 +312,147 @@ class YouTubeChatReader:
 
         return messages, new_continuation, timeout_ms
 
-    def _read_loop(self):
-        """Background loop: find stream, connect to chat, poll for messages."""
-        backoff = 5
-        max_backoff = 300
+    # ------------------------------------------------------------------ main loop
 
-        while self.running:
+    def _wait(self, stop_event, seconds):
+        """Sleep that returns early when the reader is stopped."""
+        return stop_event.wait(seconds)
+
+    def _connect(self):
+        """Find the live stream and get an initial continuation.
+
+        Returns (video_id, continuation, api_key) or None if there is no live stream.
+        """
+        # Fast path: the stream we were reading is probably still the same one
+        if self._last_video_id:
             try:
-                _log(f"Finding live stream: {self.channel_url}")
-                video_id = self._find_live_video_id()
-
-                if not video_id:
-                    raise Exception("No active live stream found")
-
-                _log(f"Found live stream: {video_id}")
-
-                # Get initial continuation token
-                continuation, api_key = self._get_initial_chat_data(video_id)
-                _log("Connected to YouTube live chat")
-
-                backoff = 5
-
-                # Poll loop
-                while self.running and continuation:
-                    messages, new_continuation, timeout_ms = self._poll_chat(
-                        continuation, api_key
-                    )
-
-                    for msg in messages:
-                        self.queue.put(msg)
-
-                    if not new_continuation:
-                        _log("Chat stream ended (no continuation)")
-                        break
-
-                    continuation = new_continuation
-
-                    # Respect YouTube's suggested poll interval
-                    sleep_time = max(timeout_ms / 1000, 1.0)
-                    end_time = time.time() + sleep_time
-                    while self.running and time.time() < end_time:
-                        time.sleep(0.5)
-
-                if self.running:
-                    _log("YouTube chat ended. Reconnecting...")
-
+                continuation, api_key = self._get_initial_chat_data(self._last_video_id)
+                _log(f"Reattached to live chat for {self._last_video_id}")
+                return self._last_video_id, continuation, api_key
             except Exception as e:
-                if not self.running:
-                    break
-                _log(f"YouTube chat error: {e}")
+                _log(f"Could not reattach to {self._last_video_id} ({e}); rediscovering")
+                self._last_video_id = None
 
-            # Backoff before retry
-            if self.running:
-                _log(f"Retrying in {backoff}s...")
-                time.sleep(backoff)
-                backoff = min(backoff * 2, max_backoff)
+        _log(f"Finding live stream: {self.channel_url}")
+        video_id = self._find_live_video_id()
+        if not video_id:
+            return None
+
+        _log(f"Found live stream: {video_id}")
+        continuation, api_key = self._get_initial_chat_data(video_id)
+        self._last_video_id = video_id
+        return video_id, continuation, api_key
+
+    def _session(self, generation, stop_event, continuation, api_key):
+        """Poll one chat session until it ends or the reader is stopped.
+
+        Returns a short reason string for logging.
+        """
+        failures = 0
+        polls = 0
+        received = 0
+        last_heartbeat = time.time()
+
+        while not stop_event.is_set():
+            try:
+                messages, new_continuation, timeout_ms = self._poll_chat(continuation, api_key)
+            except TransientPollError as e:
+                failures += 1
+                self.stats["poll_retries"] += 1
+                if failures > _MAX_POLL_FAILURES:
+                    return f"gave up after {failures} consecutive poll failures ({e})"
+                delay = _POLL_RETRY_DELAYS[min(failures - 1, len(_POLL_RETRY_DELAYS) - 1)]
+                _log(f"YouTube poll failed ({e}); retrying same position in {delay}s "
+                     f"({failures}/{_MAX_POLL_FAILURES})")
+                if self._wait(stop_event, delay):
+                    return "stopped"
+                continue
+
+            polls += 1
+            self.stats["polls"] += 1
+
+            # Only the newest reader generation may feed the queue
+            if generation != self._generation:
+                return "superseded by a newer reader"
+
+            for msg in messages:
+                self.queue.put(msg)
+            if messages:
+                received += len(messages)
+                self.stats["messages"] += len(messages)
+                self.stats["last_message_at"] = time.time()
+
+            if not new_continuation:
+                failures += 1
+                if failures > _MAX_POLL_FAILURES:
+                    return "no continuation token returned repeatedly (chat ended?)"
+                delay = _POLL_RETRY_DELAYS[min(failures - 1, len(_POLL_RETRY_DELAYS) - 1)]
+                _log(f"YouTube poll returned no continuation; retrying same position in {delay}s "
+                     f"({failures}/{_MAX_POLL_FAILURES})")
+                if self._wait(stop_event, delay):
+                    return "stopped"
+                continue
+
+            failures = 0
+            continuation = new_continuation
+
+            now = time.time()
+            if now - last_heartbeat >= _HEARTBEAT_INTERVAL:
+                last_heartbeat = now
+                age = (
+                    f"{int(now - self.stats['last_message_at'])}s ago"
+                    if self.stats["last_message_at"]
+                    else "never"
+                )
+                _log(f"YouTube chat heartbeat: {polls} polls, {received} messages this session, "
+                     f"last message {age}")
+
+            # Respect YouTube's suggested poll interval
+            sleep_time = max(timeout_ms / 1000, 1.0)
+            if self._wait(stop_event, sleep_time):
+                return "stopped"
+
+        return "stopped"
+
+    def _read_loop(self, generation, stop_event):
+        """Background loop: find stream, connect to chat, poll for messages."""
+        error_backoff = _ERROR_BACKOFF_START
+
+        while not stop_event.is_set():
+            try:
+                connected = self._connect()
+            except Exception as e:
+                _log(f"YouTube chat error: {e.__class__.__name__}: {e}")
+                _log(f"Retrying in {error_backoff}s...")
+                if self._wait(stop_event, error_backoff):
+                    break
+                error_backoff = min(error_backoff * 2, _ERROR_BACKOFF_MAX)
+                continue
+
+            if connected is None:
+                _log(f"No active YouTube live stream found; checking again in {_NO_STREAM_WAIT}s")
+                if self._wait(stop_event, _NO_STREAM_WAIT):
+                    break
+                continue
+
+            video_id, continuation, api_key = connected
+            _log("Connected to YouTube live chat")
+            error_backoff = _ERROR_BACKOFF_START
+            self.stats["connected_at"] = time.time()
+
+            try:
+                reason = self._session(generation, stop_event, continuation, api_key)
+            except Exception as e:
+                reason = f"unexpected error: {e.__class__.__name__}: {e}"
+
+            duration = int(time.time() - self.stats["connected_at"])
+            if stop_event.is_set() or reason == "superseded by a newer reader":
+                _log(f"YouTube chat session ended after {duration}s ({reason})")
+                break
+
+            self.stats["reconnects"] += 1
+            _log(f"YouTube chat session ended after {duration}s ({reason}). Reconnecting...")
+            if self._wait(stop_event, 2):
+                break
+
+        _log("YouTube chat reader stopped")

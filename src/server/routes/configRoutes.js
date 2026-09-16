@@ -2,7 +2,12 @@ import { Router } from "express";
 import botState from "../../state/BotState.js";
 import { requireAuth, Permissions } from "../../auth/sessionManager.js";
 import { loadBlacklist, addBlacklistWord, removeBlacklistWord } from "../../blacklistStore.js";
-import { loadEmojiMappings, addEmojiMapping, removeEmojiMapping } from "../../emojiMappingStore.js";
+import {
+  loadEmojiMappings,
+  addEmojiMapping,
+  removeEmojiMapping,
+  loadUnmappedEmojis
+} from "../../emojiMappingStore.js";
 import { loadConfig, updateConfigSection } from "../../configStore.js";
 import {
   loadAutoBanRules,
@@ -455,6 +460,22 @@ export function createConfigRoutes(options = {}) {
       res.status(500).json({ error: "Failed to load emoji mappings" });
     }
   });
+
+  /**
+   * GET /api/emoji-mappings/unmapped - Emojis seen in YouTube chat with no mapping (requires moderator)
+   */
+  router.get(
+    "/api/emoji-mappings/unmapped",
+    requireAuth(Permissions.MODERATOR),
+    async (req, res) => {
+      try {
+        const unmapped = await loadUnmappedEmojis();
+        res.json({ unmapped });
+      } catch (error) {
+        res.status(500).json({ error: "Failed to load unmapped emojis" });
+      }
+    }
+  );
 
   /**
    * POST /api/emoji-mappings - Add/update emoji mapping (requires moderator)

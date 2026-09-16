@@ -18,12 +18,7 @@ function EmojiTag({ emoji, onRemove }) {
   return html`
     <span class="emoji-tag">
       <code>${emoji}</code>
-      <button
-        class="emoji-tag-remove"
-        onClick=${handleRemove}
-        disabled=${removing}
-        title="Remove"
-      >
+      <button class="emoji-tag-remove" onClick=${handleRemove} disabled=${removing} title="Remove">
         ${removing ? "..." : "\u2715"}
       </button>
     </span>
@@ -58,9 +53,7 @@ function EmojiGroup({ replacement, emojis, onRemoveEmoji, onAddEmoji }) {
       </div>
       <div class="emoji-group-tags">
         ${emojis.map(
-          (emoji) => html`
-            <${EmojiTag} key=${emoji} emoji=${emoji} onRemove=${onRemoveEmoji} />
-          `
+          (emoji) => html` <${EmojiTag} key=${emoji} emoji=${emoji} onRemove=${onRemoveEmoji} /> `
         )}
         <form class="emoji-add-inline" onSubmit=${handleAdd}>
           <input
@@ -78,6 +71,138 @@ function EmojiGroup({ replacement, emojis, onRemoveEmoji, onAddEmoji }) {
   `;
 }
 
+function formatLastSeen(iso) {
+  if (!iso) return "";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const minutes = Math.round((Date.now() - then) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+function UnmappedRow({ entry, onMap }) {
+  const [replacement, setReplacement] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (value) => {
+    setBusy(true);
+    try {
+      await onMap(entry.emoji, value);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return html`
+    <div class="unmapped-row">
+      <code>${entry.emoji}</code>
+      <span class="unmapped-meta">
+        seen ${entry.count}×${entry.lastSeen ? `, last ${formatLastSeen(entry.lastSeen)}` : ""}
+        ${entry.sample
+          ? html`<span class="unmapped-sample" title=${entry.sample}>${entry.sample}</span>`
+          : ""}
+      </span>
+      <form
+        class="unmapped-actions"
+        onSubmit=${(e) => {
+          e.preventDefault();
+          if (replacement.trim()) submit(replacement.trim());
+        }}
+      >
+        <input
+          type="text"
+          class="form-input"
+          placeholder="Replacement"
+          value=${replacement}
+          onInput=${(e) => setReplacement(e.target.value)}
+          disabled=${busy}
+        />
+        <button
+          type="submit"
+          class="btn btn-sm btn-primary"
+          disabled=${busy || !replacement.trim()}
+        >
+          Map
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm"
+          title="Remove this emoji from relayed messages"
+          onClick=${() => submit("")}
+          disabled=${busy}
+        >
+          Strip
+        </button>
+      </form>
+    </div>
+  `;
+}
+
+function UnmappedEmojis({ onMap, refreshKey }) {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const load = async () => {
+    try {
+      const result = await emojiMappings.unmapped();
+      setEntries(result.unmapped || []);
+      setError(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    // The relay writes the file every few seconds while chat is active
+    const timer = setInterval(load, 30000);
+    return () => clearInterval(timer);
+  }, [refreshKey]);
+
+  return html`
+    <div class="card" style="margin-bottom: 1rem;">
+      <div class="card-header">
+        <span class="card-title">Unmapped YouTube emojis</span>
+        <span class="text-muted">
+          ${entries.length} waiting
+          <button
+            class="btn btn-sm"
+            style="margin-left: 0.5rem;"
+            onClick=${load}
+            disabled=${loading}
+          >
+            Refresh
+          </button>
+        </span>
+      </div>
+      <div class="card-body">
+        <p style="margin-bottom: 0.75rem; color: var(--text-muted); font-size: 0.75rem;">
+          Shortcodes the relay saw in YouTube chat that have no mapping yet. Map one to a
+          replacement, or strip it so it is removed from relayed messages.
+        </p>
+        ${error && html`<div class="alert alert-error" style="margin-bottom: 1rem;">${error}</div>`}
+        ${entries.length === 0
+          ? html`<div class="empty-state-small">
+              ${loading
+                ? "Loading..."
+                : "Nothing unmapped. New ones show up here as chat comes in."}
+            </div>`
+          : html`<div class="unmapped-list">
+              ${entries.map(
+                (entry) => html`<${UnmappedRow} key=${entry.emoji} entry=${entry} onMap=${onMap} />`
+              )}
+            </div>`}
+      </div>
+    </div>
+  `;
+}
+
 export function EmojiMappingsEditor() {
   const [mappings, setMappings] = useState(emojiMappingsData.value);
   const [error, setError] = useState(null);
@@ -85,6 +210,7 @@ export function EmojiMappingsEditor() {
   const [newReplacement, setNewReplacement] = useState("");
   const [newEmoji, setNewEmoji] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [unmappedRefresh, setUnmappedRefresh] = useState(0);
 
   useEffect(() => {
     fetchEmojiMappings();
@@ -148,6 +274,7 @@ export function EmojiMappingsEditor() {
       if (result.success) {
         setSuccess(result.message);
         fetchEmojiMappings();
+        setUnmappedRefresh((n) => n + 1);
       } else {
         setError(result.message || "Failed to add");
       }
@@ -165,14 +292,14 @@ export function EmojiMappingsEditor() {
   };
 
   return html`
+    <${UnmappedEmojis} onMap=${handleAddEmoji} refreshKey=${unmappedRefresh} />
     <div class="card">
       <div class="card-header">
         <span class="card-title">Emoji Mappings</span>
         <span class="text-muted">${totalMappings} mappings</span>
       </div>
       <div class="card-body">
-        ${error &&
-        html`<div class="alert alert-error" style="margin-bottom: 1rem;">${error}</div>`}
+        ${error && html`<div class="alert alert-error" style="margin-bottom: 1rem;">${error}</div>`}
         ${success &&
         html`<div class="alert alert-success" style="margin-bottom: 1rem;">${success}</div>`}
 
@@ -197,9 +324,7 @@ export function EmojiMappingsEditor() {
               onInput=${(e) => setNewReplacement(e.target.value)}
               style="flex: 1;"
             />
-            <button type="submit" class="btn btn-primary" disabled=${!newEmoji.trim()}>
-              Add
-            </button>
+            <button type="submit" class="btn btn-primary" disabled=${!newEmoji.trim()}>Add</button>
           </div>
         </form>
 
@@ -215,12 +340,13 @@ export function EmojiMappingsEditor() {
             />
           </div>
         `}
-
         ${groups.length === 0
           ? html`
               <div class="empty-state">
-                <div class="empty-state-icon">\u{1F504}</div>
-                <p>${searchTerm ? "No mappings match your search" : "No emoji mappings configured"}</p>
+                <div class="empty-state-icon">🔄</div>
+                <p>
+                  ${searchTerm ? "No mappings match your search" : "No emoji mappings configured"}
+                </p>
               </div>
             `
           : html`

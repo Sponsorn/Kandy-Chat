@@ -196,6 +196,10 @@ export const emojiMappings = {
     return request("POST", "/api/emoji-mappings", { emoji, replacement });
   },
 
+  async unmapped() {
+    return request("GET", "/api/emoji-mappings/unmapped");
+  },
+
   async remove(emoji) {
     return request("DELETE", "/api/emoji-mappings", { emoji });
   }

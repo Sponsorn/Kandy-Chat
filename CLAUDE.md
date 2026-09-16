@@ -227,6 +227,7 @@ Critical dependencies between env vars:
 - `data/blacklist-metadata.json`: Full Twitch blocked term metadata from imports
 - `data/tokens.json`: Shared access + refresh tokens (written by main bot, read by youtube-relay)
 - `data/emoji-mappings.json`: YouTube emoji → text mappings (managed via dashboard, read by youtube-relay)
+- `data/emoji-unmapped.json`: Shortcodes seen in YouTube chat with no mapping, with count, last seen and a sample message (written by youtube-relay, read by the dashboard's Emoji Mappings page via `GET /api/emoji-mappings/unmapped`; entries disappear once mapped)
 - `data/stream-status.json`: Per-channel live status (written by main bot on EventSub events, at startup, and by the Helix status poller; read by youtube-relay)
 
 ## Common Patterns
@@ -271,9 +272,9 @@ A self-contained Python service that reads YouTube live chat and relays messages
 
 ### Key Files
 - `youtube-relay/bot.py`: Main coordinator — connects Twitch, starts YouTube reader, runs message relay loop. Includes spam protection (per-user rate limiting, duplicate message filtering).
-- `youtube-relay/youtube_reader.py`: YouTube chat reader using yt-dlp for stream discovery and YouTube innertube API for real-time chat polling (no API key required)
+- `youtube-relay/youtube_reader.py`: YouTube chat reader using yt-dlp for stream discovery and YouTube innertube API for real-time chat polling (no API key required). Transient poll errors retry the same continuation token (up to 5 times) before rediscovering; rediscovery reattaches to the last video id before calling yt-dlp; "no live stream" waits a flat 30s; each `start()` gets its own stop event and generation number so a restart never leaves two threads feeding the queue; message ids are remembered to drop replays
 - `youtube-relay/twitch_bot.py`: HTTP-only Twitch API client — sends messages via Helix API, reads shared `data/tokens.json` for auth, loads blacklist from `data/blacklist.json` with regex support
-- `youtube-relay/emoji_converter.py`: Converts YouTube emoji shortcodes (`:heart:`, `:smile:`) to text using mappings from `data/emoji-mappings.json`, reloads every 5 min
+- `youtube-relay/emoji_converter.py`: Converts YouTube emoji shortcodes (`:heart:`, `:smile:`) to text using mappings from `data/emoji-mappings.json`, reloads every 5 min. Records unmapped shortcodes to `data/emoji-unmapped.json` (throttled atomic writes, max 500 entries) so the dashboard can list them
 - `youtube-relay/config_loader.py`: Loads config from `.env` file (auth tokens optional — reads from shared `data/tokens.json`)
 - `youtube-relay/run.py`: Entry point
 

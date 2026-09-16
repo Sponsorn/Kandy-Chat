@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   loadEmojiMappings,
   addEmojiMapping,
-  removeEmojiMapping
+  removeEmojiMapping,
+  loadUnmappedEmojis
 } from "../src/emojiMappingStore.js";
 import { promises as fs } from "node:fs";
 
@@ -75,6 +76,58 @@ describe("emojiMappingStore", () => {
 
       const result = await removeEmojiMapping(":nope:");
       expect(result.removed).toBe(false);
+    });
+  });
+
+  describe("loadUnmappedEmojis", () => {
+    const unmappedFile = JSON.stringify({
+      ":rare:": { count: 1, last_seen: "2026-09-16T10:00:00Z", sample: "a :rare: one" },
+      ":common:": { count: 7, last_seen: "2026-09-16T09:00:00Z", sample: ":common: hi" },
+      ":thumbsup:": { count: 3, last_seen: "2026-09-16T09:30:00Z", sample: "" },
+      ":broken:": "not an object"
+    });
+
+    function mockFiles({ unmapped, mappings }) {
+      fs.readFile.mockImplementation(async (path) => {
+        if (String(path).endsWith("emoji-unmapped.json")) {
+          if (unmapped instanceof Error) throw unmapped;
+          return unmapped;
+        }
+        if (mappings instanceof Error) throw mappings;
+        return mappings;
+      });
+    }
+
+    it("returns entries sorted by count, excluding already mapped and malformed ones", async () => {
+      mockFiles({ unmapped: unmappedFile, mappings: JSON.stringify({}) });
+      const result = await loadUnmappedEmojis();
+      // :thumbsup: is a default mapping, :broken: is malformed
+      expect(result.map((e) => e.emoji)).toEqual([":common:", ":rare:"]);
+      expect(result[0]).toEqual({
+        emoji: ":common:",
+        count: 7,
+        lastSeen: "2026-09-16T09:00:00Z",
+        sample: ":common: hi"
+      });
+    });
+
+    it("drops entries that were mapped in the saved mappings file", async () => {
+      mockFiles({ unmapped: unmappedFile, mappings: JSON.stringify({ ":common:": "C" }) });
+      const result = await loadUnmappedEmojis();
+      expect(result.map((e) => e.emoji)).toEqual([":rare:"]);
+    });
+
+    it("returns an empty list when the relay has not written the file yet", async () => {
+      mockFiles({
+        unmapped: Object.assign(new Error(), { code: "ENOENT" }),
+        mappings: JSON.stringify({})
+      });
+      expect(await loadUnmappedEmojis()).toEqual([]);
+    });
+
+    it("returns an empty list when the file is being rewritten and is not valid JSON", async () => {
+      mockFiles({ unmapped: "{ partial", mappings: JSON.stringify({}) });
+      expect(await loadUnmappedEmojis()).toEqual([]);
     });
   });
 });
