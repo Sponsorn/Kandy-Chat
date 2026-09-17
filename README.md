@@ -131,6 +131,29 @@ Optional reaction actions:
 - `REACTION_BAN_EMOJI=` emoji name or ID to ban the sender
 - `REACTION_TIMEOUT_SECONDS=60` timeout duration in seconds
 
+## Ban sync (main channel -> other channels)
+
+When the bot moderates more than one channel, it can mirror bans one way: a user banned in the
+main channel (for example `kandyland`) is banned in the other channels too (for example
+`kandylandvods`), but a ban in those channels is never copied back.
+
+- Configure it in the dashboard under Settings -> Ban Sync (admin): enable, pick the source
+  channel, tick the target channels, and edit the ban reason template. Settings live in
+  `data/config.json`, no restart needed.
+- Every ban in the source channel counts, whoever issued it: a moderator in Twitch chat, a Discord
+  reaction or button, the dashboard, or an auto-ban rule. The bot listens for the IRC ban notice.
+- The mirrored ban carries a reason built from the template, default
+  `Banned in {source} by {moderator}`. Tags: `{source}`, `{target}`, `{moderator}`, `{user}`,
+  `{reason}`. For bans clicked in Discord or the dashboard, `{moderator}` is that user; for bans
+  done directly in Twitch chat the bot looks the moderator up with the Helix "Get Banned Users"
+  endpoint, which needs the `moderation:read` scope on the bot token (without it the reason falls
+  back to "a moderator").
+- "Mirror Unbans" lifts the mirrored bans when the bot itself unbans someone (the Unban button on
+  auto-ban cards). Twitch IRC has no unban notice, so an unban done directly in Twitch chat is not
+  mirrored.
+- "Announce in Discord" posts a `[SYSTEM]` line in the relay channel of the source channel each
+  time a ban is mirrored. Mirrored actions also appear in the dashboard Mod Log with source "Bot".
+
 ## Slash commands
 
 Slash commands are registered per guild using a deploy script.

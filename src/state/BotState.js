@@ -54,7 +54,8 @@ class BotState extends EventEmitter {
     // Runtime configuration (overrides env defaults when set)
     this.runtimeConfig = {
       filters: {},
-      subscriptionMessages: {}
+      subscriptionMessages: {},
+      banSync: {}
     };
 
     // Metrics for dashboard
@@ -546,7 +547,35 @@ class BotState extends EventEmitter {
     if (config.subscriptionMessages) {
       this.runtimeConfig.subscriptionMessages = { ...config.subscriptionMessages };
     }
+    if (config.banSync) {
+      this.runtimeConfig.banSync = { ...config.banSync };
+    }
     this.emit("runtimeConfig:updated", { config: this.runtimeConfig });
+  }
+
+  /**
+   * Get the ban sync configuration (source channel -> target channels mirroring)
+   * @returns {Object} Config object; `enabled` is false when nothing is configured
+   */
+  getBanSyncConfig() {
+    const cfg = this.runtimeConfig.banSync || {};
+    return {
+      enabled: cfg.enabled === true,
+      sourceChannel: cfg.sourceChannel ?? null,
+      targetChannels: Array.isArray(cfg.targetChannels) ? [...cfg.targetChannels] : [],
+      mirrorUnbans: cfg.mirrorUnbans !== false,
+      announceInDiscord: cfg.announceInDiscord !== false,
+      reasonTemplate: cfg.reasonTemplate || null
+    };
+  }
+
+  /**
+   * Replace the ban sync configuration at runtime
+   * @param {Object} config - Validated ban sync config
+   */
+  setBanSyncConfig(config) {
+    this.runtimeConfig.banSync = { ...config };
+    this.emit("runtimeConfig:updated", { section: "banSync", config: this.runtimeConfig.banSync });
   }
 
   /**

@@ -92,6 +92,14 @@ No build step — code runs directly via Node.js ESM modules.
 - `buildNormalV2Message()`, `buildSuspiciousV2Message()`, `buildDisabledV2Message()`, `buildDeletedV2Message()`
 - Used when `MODERATION_USE_BUTTONS=true`
 
+#### [src/services/banSyncService.js](src/services/banSyncService.js)
+- One-way ban mirroring between joined channels, configured from the dashboard (Settings -> Ban Sync) and stored in `data/config.json` under `banSync` (`enabled`, `sourceChannel`, `targetChannels`, `mirrorUnbans`, `announceInDiscord`, `reasonTemplate`)
+- Trigger is the tmi.js `ban` event (IRC CLEARCHAT without duration) in `twitchHandlers.js`, so bans from Twitch chat, Discord reactions/buttons, the dashboard and auto-ban all mirror; bans in a target channel never mirror back
+- `planBanMirror()` and `validateBanSyncConfig()` are the pure decision/validation functions (unit tested); `mirrorBan()` / `mirrorUnban()` call `TwitchAPIClient` and record Mod Log entries with moderator `BanSync`, source `auto`
+- Ban reason template tags: `{source}`, `{target}`, `{moderator}`, `{user}`, `{reason}`. `{moderator}` comes from `noteBanAttribution()` (called by every bot ban path right before `banUser()`), else from `TwitchAPIClient.getBannedUser()` (Helix Get Banned Users, needs `moderation:read`), else "a moderator"
+- Unbans are only mirrored when the bot performs them (Unban button in `discordHandlers.js`); IRC has no unban notice
+- Routes: `GET/PUT /api/ban-sync` in `configRoutes.js`; runtime copy in `BotState.getBanSyncConfig()` / `setBanSyncConfig()`
+
 #### [src/services/eventSubManager.js](src/services/eventSubManager.js)
 - Lists, creates and deletes EventSub webhook subscriptions with an app access token
 - `ensureSubscriptions()` reconciles registered subscriptions with the required set (stream.online, stream.offline, channel.raid per `EVENTSUB_BROADCASTER`): removes revoked/duplicate ones, creates missing ones
@@ -134,7 +142,8 @@ No build step — code runs directly via Node.js ESM modules.
   - `app.js`: Main app component, routing, WebSocket connection
   - `state.js`: Global signals (botStatus, metrics, user, etc.) and WebSocket message handler
   - `api.js`: REST API wrapper functions
-  - `components/`: StatusCard, ConfigPanel, BlacklistEditor, AuditLog, etc.
+  - `components/`: StatusCard, ConfigPanel (filters, auto-ban rules, ban sync, sub messages), BlacklistEditor, AuditLog, etc.
+  - The live chat feed lives on the Dashboard home page (`ChannelColumn` per channel, fed by `chat:message` events). The old "Chat Monitor" page was removed: it only received relay metadata without message text
 
 ### Moderation Features
 
@@ -266,6 +275,7 @@ Usage: call methods like `twitchAPIClient.deleteMessage()`, `twitchAPIClient.ban
   - `tests/configValidator.test.js`: `validateConfig()` — required fields, Discord IDs, auth modes, channel mapping, EventSub, freeze monitor
   - `tests/eventSubManager.test.js`: `planReconciliation()`, `readEventSubConfig()`, `ensureSubscriptions()` with a mocked fetch
   - `tests/streamStatusPoller.test.js`: confirmation counting, per-channel handling, timer start/stop
+  - `tests/banSyncService.test.js`: `planBanMirror()`, `validateBanSyncConfig()`, `renderBanReason()`, attribution, `mirrorBan()` / `mirrorUnban()` with a mocked API client
 
 ## YouTube Relay (`youtube-relay/`)
 

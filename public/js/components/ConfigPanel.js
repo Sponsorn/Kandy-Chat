@@ -396,6 +396,233 @@ function AutoBanSection() {
   `;
 }
 
+function BanSyncSection() {
+  const [data, setData] = useState(null);
+  const [edited, setEdited] = useState(null);
+  const [hasChanges, setHasChanges] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState(null);
+  const isAdmin = canAdmin.value;
+
+  const load = useCallback(async () => {
+    try {
+      const result = await config.getBanSync();
+      setData(result);
+      setEdited({ ...result.config });
+      setHasChanges(false);
+    } catch (err) {
+      setMessage({ type: "error", text: `Failed to load ban sync settings: ${err.message}` });
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const handler = () => load();
+    window.addEventListener("app:config-update", handler);
+    return () => window.removeEventListener("app:config-update", handler);
+  }, [load]);
+
+  const update = (patch) => {
+    setEdited((prev) => ({ ...prev, ...patch }));
+    setHasChanges(true);
+    setMessage(null);
+  };
+
+  const channels = data?.channels || [];
+  const source = edited?.sourceChannel || "";
+  const targets = edited?.targetChannels || [];
+  const targetOptions = channels.filter((ch) => ch !== source);
+
+  const toggleTarget = (channel, checked) => {
+    const next = checked ? [...targets, channel] : targets.filter((t) => t !== channel);
+    update({ targetChannels: [...new Set(next)] });
+  };
+
+  const handleSourceChange = (value) => {
+    // A channel cannot be both source and target
+    update({ sourceChannel: value || null, targetChannels: targets.filter((t) => t !== value) });
+  };
+
+  const save = async () => {
+    if (!isAdmin || !hasChanges) return;
+    try {
+      setSaving(true);
+      setMessage(null);
+      const result = await config.updateBanSync(edited);
+      setMessage({ type: "success", text: result.message || "Ban sync settings saved" });
+      await load();
+    } catch (err) {
+      setMessage({ type: "error", text: `Failed to save: ${err.message}` });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!data || !edited) {
+    return html`<${ConfigSection} title="Ban Sync" badge="Loading...">
+      <p style="color: var(--text-secondary);">Loading...</p>
+    </${ConfigSection}>`;
+  }
+
+  const summary = data.config.enabled
+    ? `Active: ${data.config.sourceChannel} → ${data.config.targetChannels.join(", ")}`
+    : "Inactive";
+
+  return html`
+    <${ConfigSection} title="Ban Sync" badge=${isAdmin ? "Editable" : "View only"}>
+      <p style="color: var(--text-secondary); font-size: 0.9rem; margin: 0 0 0.5rem 0;">
+        When a user is banned in the source channel (by any moderator, from Twitch chat, Discord or
+        this dashboard), the bot bans them in the target channels too. Bans in a target channel are
+        never mirrored back.
+      </p>
+      <p style="color: var(--text-muted); font-size: 0.8rem; margin: 0 0 0.5rem 0;">${summary}</p>
+      ${
+        message &&
+        html`<p
+          style="color: ${message.type === "error"
+            ? "var(--error-color)"
+            : "var(--success, #22c55e)"}; margin-bottom: 0.5rem;"
+        >
+          ${message.text}
+        </p>`
+      }
+
+      <${ToggleSwitch}
+        label="Enable Ban Sync"
+        description="Mirror bans from the source channel to the target channels"
+        checked=${edited.enabled}
+        onChange=${(v) => update({ enabled: v })}
+        disabled=${!isAdmin}
+      />
+
+      <div
+        style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid var(--border-color); gap: 1rem;"
+      >
+        <div>
+          <span>Source channel</span>
+          <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0.25rem 0 0 0;">
+            Bans issued here are copied to the targets
+          </p>
+        </div>
+        <select
+          value=${source}
+          onChange=${(e) => handleSourceChange(e.target.value)}
+          disabled=${!isAdmin}
+          class="form-input"
+          style="min-width: 160px;"
+        >
+          <option value="">Not set</option>
+          ${channels.map((ch) => html`<option value=${ch}>${ch}</option>`)}
+        </select>
+      </div>
+
+      <div style="padding: 0.75rem 0; border-bottom: 1px solid var(--border-color);">
+        <span>Target channels</span>
+        <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0.25rem 0 0.5rem 0;">
+          Channels that receive the mirrored ban
+        </p>
+        ${
+          targetOptions.length === 0
+            ? html`<p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">
+                No other channels available. Add more channels to TWITCH_CHANNEL in .env.
+              </p>`
+            : targetOptions.map(
+                (ch) => html`
+                  <label
+                    style="display: flex; align-items: center; gap: 0.5rem; cursor: ${isAdmin
+                      ? "pointer"
+                      : "not-allowed"}; margin: 0.25rem 0;"
+                  >
+                    <input
+                      type="checkbox"
+                      checked=${targets.includes(ch)}
+                      onChange=${(e) => toggleTarget(ch, e.target.checked)}
+                      disabled=${!isAdmin}
+                    />
+                    ${ch}
+                  </label>
+                `
+              )
+        }
+      </div>
+
+      ${
+        isAdmin
+          ? html`
+              <div style="padding-top: 0.75rem;">
+                <${TemplateEditor}
+                  label="Ban reason on the target channel"
+                  value=${edited.reasonTemplate || ""}
+                  onChange=${(v) => update({ reasonTemplate: v })}
+                  tags=${data.availableTags || []}
+                  placeholder="Banned in {source} by {moderator}"
+                />
+                <p style="color: var(--text-muted); font-size: 0.8rem; margin: -0.5rem 0 0.5rem 0;">
+                  {moderator} is the Discord or dashboard user who clicked ban, or the Twitch
+                  moderator name looked up via Helix (needs the moderation:read scope on the bot
+                  token). {reason} is the original ban reason when Twitch reports one.
+                </p>
+              </div>
+            `
+          : html`<${ConfigItem} label="Ban reason" value=${edited.reasonTemplate} />`
+      }
+
+      <${ToggleSwitch}
+        label="Mirror Unbans"
+        description="When the bot unbans a user in the source channel (Unban button on auto-ban cards), unban them in the targets too. Unbans done directly in Twitch chat are not detected."
+        checked=${edited.mirrorUnbans}
+        onChange=${(v) => update({ mirrorUnbans: v })}
+        disabled=${!isAdmin}
+      />
+      <${ToggleSwitch}
+        label="Announce in Discord"
+        description="Post a [SYSTEM] note in the relay channel when a ban is mirrored"
+        checked=${edited.announceInDiscord}
+        onChange=${(v) => update({ announceInDiscord: v })}
+        disabled=${!isAdmin}
+      />
+
+      ${
+        isAdmin &&
+        hasChanges &&
+        html`
+          <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+            <button
+              onClick=${save}
+              disabled=${saving}
+              style=${{
+                padding: "0.5rem 1rem",
+                backgroundColor: "var(--accent-primary)",
+                color: "white",
+                border: "none",
+                borderRadius: "4px",
+                cursor: saving ? "not-allowed" : "pointer",
+                opacity: saving ? 0.7 : 1
+              }}
+            >
+              ${saving ? "Saving..." : "Save Ban Sync Settings"}
+            </button>
+            <button
+              onClick=${load}
+              disabled=${saving}
+              style=${{
+                padding: "0.5rem 1rem",
+                backgroundColor: "var(--bg-tertiary)",
+                color: "var(--text-primary)",
+                border: "1px solid var(--border-color)",
+                borderRadius: "4px",
+                cursor: saving ? "not-allowed" : "pointer"
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        `
+      }
+    </${ConfigSection}>
+  `;
+}
+
 export function ConfigPanel() {
   const [configData, setConfigData] = useState(null);
   const [channels, setChannels] = useState(null);
@@ -648,6 +875,8 @@ export function ConfigPanel() {
       <//>
 
       <${AutoBanSection} />
+
+      <${BanSyncSection} />
 
       <${ConfigSection} title="Subscription Messages" badge=${isAdmin ? "Editable" : "View only"}>
         <h4 style="color: var(--text-primary); margin: 0 0 0.75rem 0; font-size: 1rem;">

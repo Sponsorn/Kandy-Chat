@@ -255,6 +255,46 @@ export class TwitchAPIClient {
   }
 
   /**
+   * Look up a user's ban entry in a channel (who banned them, why, and when it expires).
+   * Requires the moderation:read scope on the bot token.
+   * @param {string} channelName - Channel name (with or without #)
+   * @param {string} username - Username to look up
+   * @returns {Promise<{moderatorLogin: string, moderatorName: string, reason: string, expiresAt: string|null}|null>}
+   *   The ban entry, or null when the user is not banned there
+   */
+  async getBannedUser(channelName, username) {
+    const accessToken = await this.getAccessToken();
+    const { broadcasterId } = await this.getBroadcasterAndModeratorIds(channelName);
+    const userId = await this.getUserId(username);
+
+    const response = await fetchWithTimeout(
+      `https://api.twitch.tv/helix/moderation/banned?broadcaster_id=${broadcasterId}&user_id=${userId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Client-Id": this.clientId
+        }
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to look up ban: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    const entry = data.data?.[0];
+    if (!entry) return null;
+
+    return {
+      moderatorLogin: entry.moderator_login || "",
+      moderatorName: entry.moderator_name || "",
+      reason: entry.reason || "",
+      expiresAt: entry.expires_at || null
+    };
+  }
+
+  /**
    * Warn a user in Twitch chat
    * @param {string} channelName - Channel name
    * @param {string} username - Username to warn

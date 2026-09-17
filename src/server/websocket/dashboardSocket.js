@@ -193,10 +193,6 @@ export function createDashboardSocket(server) {
 
   // Subscribe to BotState events and broadcast to clients
 
-  botState.on("message:relayed", (data) => {
-    broadcast("message:relay", data, Permissions.MODERATOR);
-  });
-
   botState.on("chat:message", (data) => {
     broadcast("chat:message", data, Permissions.MODERATOR);
   });

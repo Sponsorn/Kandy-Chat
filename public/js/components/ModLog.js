@@ -7,7 +7,14 @@ const ACTION_LABELS = {
   delete: { label: "Delete", color: "var(--warning)" },
   timeout: { label: "Timeout", color: "var(--info)" },
   ban: { label: "Ban", color: "var(--error)" },
+  unban: { label: "Unban", color: "var(--success, #22c55e)" },
   warn: { label: "Warn", color: "#f59e0b" }
+};
+
+const SOURCE_LABELS = {
+  discord: "Discord",
+  dashboard: "Dashboard",
+  auto: "Bot"
 };
 
 function formatTimestamp(ts) {
@@ -37,7 +44,7 @@ function ModLogEntry({ action }) {
     color: "var(--text-muted)"
   };
 
-  const sourceLabel = action.source === "dashboard" ? "Dashboard" : "Discord";
+  const sourceLabel = SOURCE_LABELS[action.source] || "Discord";
   const isFailed = action.status === "failed";
 
   return html`
@@ -62,16 +69,12 @@ function ModLogEntry({ action }) {
           ${" "}${action.action === "delete" ? "deleted message from" : `${action.action}ed`}${" "}
           <strong>${action.target}</strong>
           ${action.details?.channel && html` <span> in ${action.details.channel}</span> `}
+          ${action.details?.sourceChannel &&
+          html` <span class="text-muted"> (mirrored from ${action.details.sourceChannel})</span> `}
         </div>
         ${action.details?.message &&
-        html`
-          <div class="modlog-message">
-            ${action.details.message}
-          </div>
-        `}
-        ${isFailed &&
-        action.error &&
-        html` <div class="modlog-error">${action.error}</div> `}
+        html` <div class="modlog-message">${action.details.message}</div> `}
+        ${isFailed && action.error && html` <div class="modlog-error">${action.error}</div> `}
         <div class="modlog-time">${formatTimestamp(action.timestamp)}</div>
       </div>
     </div>
@@ -196,6 +199,11 @@ export function ModLog() {
       .modlog-source--dashboard {
         background: rgba(139, 92, 246, 0.15);
         color: #a78bfa;
+      }
+
+      .modlog-source--auto {
+        background: rgba(34, 197, 94, 0.15);
+        color: #4ade80;
       }
 
       .modlog-status-failed {

@@ -9,7 +9,6 @@ import { connect, disconnect } from "./websocket.js";
 import { Layout } from "./components/Layout.js";
 import { LoginPage } from "./components/LoginPage.js";
 import { StatusGrid } from "./components/StatusCard.js";
-import { ChatFeed } from "./components/ChatFeed.js";
 import { ModLog } from "./components/ModLog.js";
 import { BlacklistEditor } from "./components/BlacklistEditor.js";
 import { EmojiMappingsEditor } from "./components/EmojiMappingsEditor.js";
@@ -62,19 +61,15 @@ function HomePage() {
               )}
             </div>
           `
-        : html` <${ChatFeed} /> `}
-    </div>
-  `;
-}
-
-function ChatPage() {
-  return html`
-    <div>
-      <header class="page-header">
-        <h1 class="page-title">Chat Monitor</h1>
-        <p class="page-subtitle">Real-time Twitch chat feed</p>
-      </header>
-      <${ChatFeed} />
+        : html`
+            <div class="card">
+              <div class="card-body">
+                <div class="empty-state">
+                  <p>Waiting for the bot to report its Twitch channels...</p>
+                </div>
+              </div>
+            </div>
+          `}
     </div>
   `;
 }
@@ -222,8 +217,6 @@ function Router({ route }) {
   switch (route) {
     case "/":
       return html`<${HomePage} />`;
-    case "/chat":
-      return html`<${ChatPage} />`;
     case "/modlog":
       return html`<${ModLogPage} />`;
     case "/blacklist":

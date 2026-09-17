@@ -1,6 +1,7 @@
 import botState from "../state/BotState.js";
 import { buildAutoBanV2Message } from "./messageBuilder.js";
 import { formatRelayMessage, recordRelayMapping } from "./relayService.js";
+import { noteBanAttribution } from "./banSyncService.js";
 
 /**
  * Check if a message matches any enabled auto-ban rule
@@ -64,6 +65,7 @@ export async function executeAutoBan(
   // Ban the user
   try {
     const reason = `Auto-ban: matched ${patternDisplay}`;
+    noteBanAttribution(channelName, twitchUsername, "AutoBan");
     await twitchAPIClient.banUser(channelName, twitchUsername, reason);
   } catch (error) {
     console.error(`[AutoBan] Failed to ban ${twitchUsername} in ${channelName}:`, error.message);

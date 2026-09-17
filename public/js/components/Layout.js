@@ -56,7 +56,6 @@ function Sidebar() {
       <nav>
         <ul class="nav-menu">
           <${NavLink} href="/" icon="📊">Dashboard<//>
-          <${NavLink} href="/chat" icon="💬">Chat Monitor<//>
           <${NavLink} href="/modlog" icon="📋" requireMod>Mod Log<//>
           <${NavLink} href="/blacklist" icon="🚫" requireMod>Blacklist<//>
           <${NavLink} href="/emoji-mappings" icon="🔄" requireMod>Emoji Mappings<//>

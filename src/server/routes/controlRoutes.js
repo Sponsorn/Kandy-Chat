@@ -3,7 +3,12 @@ import { writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import botState from "../../state/BotState.js";
 import { requireAuth, Permissions } from "../../auth/sessionManager.js";
-import { validateChannelName, validateMessageId, validateUsername } from "../../utils/validation.js";
+import {
+  validateChannelName,
+  validateMessageId,
+  validateUsername
+} from "../../utils/validation.js";
+import { noteBanAttribution } from "../../services/banSyncService.js";
 
 const STOP_FLAG_PATH = join(process.cwd(), "data", ".stopped");
 
@@ -255,16 +260,10 @@ export function createControlRoutes(options = {}) {
     const actor = req.session?.user?.username || "dashboard";
 
     try {
+      noteBanAttribution(channel, username, actor);
       await twitchAPIClient.banUser(channel, username);
 
-      botState.recordModerationAction(
-        "ban",
-        actor,
-        username,
-        { channel },
-        "dashboard",
-        "success"
-      );
+      botState.recordModerationAction("ban", actor, username, { channel }, "dashboard", "success");
 
       res.json({ success: true, message: `User ${username} banned` });
     } catch (error) {

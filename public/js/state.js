@@ -40,16 +40,6 @@ export const chatStats = signal({}); // { "kandyland": { messageCount, uniqueUse
 // Recent raids
 export const recentRaids = signal([]); // Array of { from, to, viewers, timestamp }
 
-// Chat messages (real-time feed) - legacy, only relayed messages
-export const messages = signal([]);
-const MAX_MESSAGES = 200;
-
-export function addMessage(msg) {
-  const current = messages.value;
-  const newMessages = [{ ...msg, id: Date.now() + Math.random() }, ...current];
-  messages.value = newMessages.slice(0, MAX_MESSAGES);
-}
-
 // Chat feed messages (ALL messages, including filtered ones)
 export const chatMessages = signal([]);
 const MAX_CHAT_MESSAGES = 500;
@@ -185,8 +175,6 @@ export function updateFromWs(data) {
       setBotLogs(data.data.recentLogs);
     }
     dispatchStatusUpdate();
-  } else if (data.type === "message:relay") {
-    addMessage(data.data);
   } else if (data.type === "mod:action") {
     addModAction(data.data);
   } else if (data.type === "stream:status") {

@@ -4,6 +4,7 @@ import { normalizeMessage, shouldBlockMessage } from "../filters.js";
 import { relayToDiscord, recordRelayMapping } from "../services/relayService.js";
 import { buildDeletedV2Message } from "../services/messageBuilder.js";
 import { checkAutoBan, executeAutoBan } from "../services/autoBanService.js";
+import { mirrorBan } from "../services/banSyncService.js";
 
 const GIFT_SUB_BATCH_MS = 1500;
 
@@ -383,6 +384,14 @@ export function attachTwitchHandlers(client, env, discordChannelId, twitchAPICli
   });
 
   client.on("messagedeleted", handleTwitchMessageDeleted);
+
+  // CLEARCHAT with no duration = permanent ban. Fires for every ban in a joined channel,
+  // whoever issued it, which is what ban sync keys off.
+  client.on("ban", (channel, username, _reason, _userstate) => {
+    mirrorBan(channel, username, twitchAPIClient).catch((error) =>
+      console.error("[BanSync] Unhandled error:", error)
+    );
+  });
 
   client.on("subscription", (channel, username, method, message, userstate) => {
     handleTwitchSubscription(channel, username, method, message, userstate, env);

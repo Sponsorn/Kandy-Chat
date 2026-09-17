@@ -34,14 +34,7 @@ export function connect() {
         JSON.stringify({
           type: "subscribe",
           data: {
-            events: [
-              "message:relay",
-              "mod:action",
-              "stream:status",
-              "config:update",
-              "status:update",
-              "bot:log"
-            ]
+            events: ["mod:action", "stream:status", "config:update", "status:update", "bot:log"]
           }
         })
       );

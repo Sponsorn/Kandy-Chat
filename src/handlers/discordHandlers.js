@@ -2,6 +2,7 @@ import botState from "../state/BotState.js";
 import { handleSlashCommand } from "../commands/commandRegistry.js";
 import { hasPrivilegedRole } from "../utils/permissions.js";
 import { buildDisabledV2Message, buildUnbannedV2Message } from "../services/messageBuilder.js";
+import { noteBanAttribution, mirrorUnban } from "../services/banSyncService.js";
 
 /**
  * Resolve which moderation action to take based on reaction emoji
@@ -79,6 +80,7 @@ export async function handleReactionAdd(reaction, user, twitchAPIClient) {
       const seconds = botState.config.reactionTimeoutSeconds;
       await twitchAPIClient.timeoutUser(channelName, relay.twitchUsername, seconds);
     } else if (reactionAction === "ban") {
+      noteBanAttribution(channelName, relay.twitchUsername, user.username);
       await twitchAPIClient.banUser(channelName, relay.twitchUsername);
     } else if (reactionAction === "warn") {
       await twitchAPIClient.warnUser(
@@ -207,6 +209,7 @@ async function handleButtonInteraction(interaction, twitchAPIClient) {
       const seconds = botState.config.reactionTimeoutSeconds;
       await twitchAPIClient.timeoutUser(channelName, relay.twitchUsername, seconds);
     } else if (action === "ban") {
+      noteBanAttribution(channelName, relay.twitchUsername, interaction.user.username);
       await twitchAPIClient.banUser(channelName, relay.twitchUsername);
     } else if (action === "warn") {
       await twitchAPIClient.warnUser(
@@ -334,6 +337,11 @@ async function handleUnbanInteraction(interaction, twitchAPIClient) {
 
   try {
     await twitchAPIClient.unbanUser(channelName, relay.twitchUsername);
+
+    // Ban sync: lift the mirrored bans too (no IRC notice exists for unbans, so this is the hook)
+    mirrorUnban(channelName, relay.twitchUsername, twitchAPIClient).catch((error) =>
+      console.error("[BanSync] Failed to mirror unban:", error)
+    );
 
     botState.recordModerationAction(
       "unban",

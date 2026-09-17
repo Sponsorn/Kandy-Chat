@@ -10,6 +10,12 @@ import {
 } from "../../emojiMappingStore.js";
 import { loadConfig, updateConfigSection } from "../../configStore.js";
 import {
+  DEFAULT_BAN_SYNC_CONFIG,
+  REASON_TEMPLATE_TAGS,
+  validateBanSyncConfig,
+  normalizeChannel
+} from "../../services/banSyncService.js";
+import {
   loadAutoBanRules,
   addAutoBanRule,
   updateAutoBanRule,
@@ -294,6 +300,54 @@ export function createConfigRoutes(options = {}) {
     } catch (error) {
       console.error("Failed to update filters:", error);
       res.status(500).json({ error: "Failed to update filter settings" });
+    }
+  });
+
+  /**
+   * GET /api/ban-sync - Get ban sync settings (requires moderator)
+   */
+  router.get("/api/ban-sync", requireAuth(Permissions.MODERATOR), (req, res) => {
+    const current = botState.getBanSyncConfig();
+    res.json({
+      config: {
+        ...DEFAULT_BAN_SYNC_CONFIG,
+        ...current,
+        reasonTemplate: current.reasonTemplate || DEFAULT_BAN_SYNC_CONFIG.reasonTemplate
+      },
+      channels: botState.twitchChannels.map(normalizeChannel).filter(Boolean),
+      availableTags: [...REASON_TEMPLATE_TAGS]
+    });
+  });
+
+  /**
+   * PUT /api/ban-sync - Update ban sync settings (requires admin)
+   * Body: { enabled, sourceChannel, targetChannels, mirrorUnbans, announceInDiscord, reasonTemplate }
+   */
+  router.put("/api/ban-sync", requireAuth(Permissions.ADMIN), async (req, res) => {
+    const { config: validated, errors } = validateBanSyncConfig(req.body, botState.twitchChannels);
+    if (errors.length) {
+      return res.status(400).json({ error: errors.join("; "), errors });
+    }
+
+    try {
+      await updateConfigSection("banSync", validated);
+      botState.setBanSyncConfig(validated);
+
+      const actor = req.session?.user?.username || "unknown";
+      botState.recordAuditEvent(
+        "config_update",
+        actor,
+        { section: "banSync", changes: validated },
+        "dashboard"
+      );
+
+      const summary = validated.enabled
+        ? `enabled, ${validated.sourceChannel} -> ${validated.targetChannels.join(", ")}`
+        : "disabled";
+      res.json({ success: true, message: `Ban sync ${summary}`, config: validated });
+    } catch (error) {
+      console.error("Failed to update ban sync settings:", error);
+      res.status(500).json({ error: "Failed to update ban sync settings" });
     }
   });
 

@@ -158,6 +158,14 @@ export const config = {
 
   async updateSubscriptionMessages(messages) {
     return request("PUT", "/api/subscription-messages", messages);
+  },
+
+  async getBanSync() {
+    return request("GET", "/api/ban-sync");
+  },
+
+  async updateBanSync(settings) {
+    return request("PUT", "/api/ban-sync", settings);
   }
 };
 

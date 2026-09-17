@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
+import { DEFAULT_BAN_SYNC_CONFIG } from "./services/banSyncService.js";
 
 const storeDir = join(process.cwd(), "data");
 const storePath = join(storeDir, "config.json");
@@ -32,7 +33,9 @@ const DEFAULT_CONFIG = {
     ignoredUsers: [],
     retentionDays: 3,
     debug: false
-  }
+  },
+  // Mirror bans from one channel to others (managed from the dashboard)
+  banSync: { ...DEFAULT_BAN_SYNC_CONFIG }
 };
 
 /**
