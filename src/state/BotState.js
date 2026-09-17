@@ -565,7 +565,9 @@ class BotState extends EventEmitter {
       targetChannels: Array.isArray(cfg.targetChannels) ? [...cfg.targetChannels] : [],
       mirrorUnbans: cfg.mirrorUnbans !== false,
       announceInDiscord: cfg.announceInDiscord !== false,
-      reasonTemplate: cfg.reasonTemplate || null
+      reasonTemplate: cfg.reasonTemplate || null,
+      unbanPollHours:
+        Number.isFinite(cfg.unbanPollHours) && cfg.unbanPollHours >= 0 ? cfg.unbanPollHours : 1
     };
   }
 

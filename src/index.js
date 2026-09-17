@@ -650,12 +650,8 @@ async function start() {
   }
 
   // Ban sync: poll Helix for tracked users so unbans in the source channel (which IRC never
-  // announces) get mirrored to the target channels too.
-  const banSyncPollSeconds = Number.parseInt(process.env.BAN_SYNC_UNBAN_POLL_SECONDS, 10);
-  const banSyncPollMs = (Number.isFinite(banSyncPollSeconds) ? banSyncPollSeconds : 60) * 1000;
-  if (banSyncPollMs > 0) {
-    createBanSyncPoller({ twitchAPIClient, intervalMs: banSyncPollMs, logger: console }).start();
-  }
+  // announces) get mirrored to the target channels too. Interval comes from the dashboard config.
+  createBanSyncPoller({ twitchAPIClient, logger: console }).start();
 
   // Schedule token refresh
   if (tokenInfo?.expiresIn) {

@@ -110,7 +110,8 @@ describe("validateBanSyncConfig", () => {
       targetChannels: ["kandylandvods"],
       mirrorUnbans: false,
       announceInDiscord: true,
-      reasonTemplate: "Banned in main channel by {moderator}"
+      reasonTemplate: "Banned in main channel by {moderator}",
+      unbanPollHours: 1
     });
   });
 
@@ -155,6 +156,17 @@ describe("validateBanSyncConfig", () => {
     expect(errors).toContain("enabled must be a boolean");
     expect(errors).toContain("targetChannels must be an array");
     expect(errors).toContain("reasonTemplate must be a string");
+  });
+
+  it("validates the unban poll interval in hours", () => {
+    expect(validateBanSyncConfig({ unbanPollHours: 6 }, KNOWN).config.unbanPollHours).toBe(6);
+    expect(validateBanSyncConfig({ unbanPollHours: "0.5" }, KNOWN).config.unbanPollHours).toBe(0.5);
+    expect(validateBanSyncConfig({ unbanPollHours: 0 }, KNOWN).config.unbanPollHours).toBe(0);
+    expect(validateBanSyncConfig({}, KNOWN).config.unbanPollHours).toBe(1);
+    for (const bad of [-1, 999, "soon"]) {
+      const { errors } = validateBanSyncConfig({ unbanPollHours: bad }, KNOWN);
+      expect(errors.join(" ")).toMatch(/unbanPollHours/);
+    }
   });
 });
 
@@ -525,35 +537,68 @@ describe("checkTrackedUnbans", () => {
 });
 
 describe("createBanSyncPoller", () => {
-  it("starts and stops an interval and runs the check", async () => {
-    vi.useFakeTimers();
+  const silent = { log: () => {}, error: () => {} };
+  const HOUR = 60 * 60 * 1000;
+
+  function arm(hours) {
     botState.runtimeConfig.banSync = {
       enabled: true,
       sourceChannel: "kandyland",
       targetChannels: ["kandylandvods"],
       mirrorUnbans: true,
-      announceInDiscord: false
+      announceInDiscord: false,
+      unbanPollHours: hours
     };
     hydrateTrackedBans([
       { login: "gone", userId: "id-gone", source: "kandyland", targets: ["kandylandvods"] }
     ]);
+  }
+
+  it("uses the interval from the dashboard config and stops cleanly", async () => {
+    vi.useFakeTimers();
+    arm(2);
     const client = makeClient();
-    const poller = createBanSyncPoller({
-      twitchAPIClient: client,
-      intervalMs: 1000,
-      logger: { log: () => {}, error: () => {} }
-    });
+    const poller = createBanSyncPoller({ twitchAPIClient: client, logger: silent });
 
     poller.start();
     expect(poller.running).toBe(true);
-    await vi.advanceTimersByTimeAsync(1000);
+    expect(poller.intervalHours).toBe(2);
+    await vi.advanceTimersByTimeAsync(2 * HOUR - 1);
+    expect(client.getBannedUsersByIds).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
     expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(1);
     expect(client.unbanUser).toHaveBeenCalledWith("#kandylandvods", "gone");
 
     poller.stop();
     expect(poller.running).toBe(false);
-    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(24 * HOUR);
     expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("picks up a changed interval without a restart and pauses at 0", async () => {
+    vi.useFakeTimers();
+    arm(1);
+    const client = makeClient({ stillBannedIds: ["id-gone"] });
+    const poller = createBanSyncPoller({ twitchAPIClient: client, logger: silent });
+    poller.start();
+
+    // Dashboard saves a new interval: the poller re-arms with it
+    botState.setBanSyncConfig({ ...botState.runtimeConfig.banSync, unbanPollHours: 0.5 });
+    await vi.advanceTimersByTimeAsync(0.5 * HOUR);
+    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(1);
+
+    // 0 pauses the check entirely
+    botState.setBanSyncConfig({ ...botState.runtimeConfig.banSync, unbanPollHours: 0 });
+    await vi.advanceTimersByTimeAsync(48 * HOUR);
+    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(1);
+
+    // and a non-zero value resumes it
+    botState.setBanSyncConfig({ ...botState.runtimeConfig.banSync, unbanPollHours: 0.5 });
+    await vi.advanceTimersByTimeAsync(0.5 * HOUR);
+    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(2);
+
+    poller.stop();
     vi.useRealTimers();
   });
 });

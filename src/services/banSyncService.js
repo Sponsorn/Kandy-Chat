@@ -17,13 +17,19 @@ import { saveTrackedBans } from "../banSyncStore.js";
 
 export const DEFAULT_BAN_REASON_TEMPLATE = "Banned in {source} by {moderator}";
 
+export const DEFAULT_UNBAN_POLL_HOURS = 1;
+export const MAX_UNBAN_POLL_HOURS = 168; // one week
+
 export const DEFAULT_BAN_SYNC_CONFIG = Object.freeze({
   enabled: false,
   sourceChannel: null,
   targetChannels: [],
   mirrorUnbans: true,
   announceInDiscord: true,
-  reasonTemplate: DEFAULT_BAN_REASON_TEMPLATE
+  reasonTemplate: DEFAULT_BAN_REASON_TEMPLATE,
+  // How often (hours, fractions allowed) to ask Helix whether tracked users are still banned in
+  // the source. 0 turns the check off; bot-performed unbans still mirror immediately.
+  unbanPollHours: DEFAULT_UNBAN_POLL_HOURS
 });
 
 export const REASON_TEMPLATE_TAGS = ["source", "target", "moderator", "user", "reason"];
@@ -235,6 +241,16 @@ export function validateBanSyncConfig(input, knownChannels) {
     }
   }
 
+  let unbanPollHours = DEFAULT_UNBAN_POLL_HOURS;
+  if (input.unbanPollHours !== undefined && input.unbanPollHours !== null) {
+    const n = Number(input.unbanPollHours);
+    if (!Number.isFinite(n) || n < 0 || n > MAX_UNBAN_POLL_HOURS) {
+      errors.push(`unbanPollHours must be a number between 0 and ${MAX_UNBAN_POLL_HOURS}`);
+    } else {
+      unbanPollHours = Math.round(n * 100) / 100;
+    }
+  }
+
   let sourceChannel = null;
   if (input.sourceChannel !== null && input.sourceChannel !== undefined) {
     if (typeof input.sourceChannel !== "string") {
@@ -290,7 +306,8 @@ export function validateBanSyncConfig(input, knownChannels) {
       targetChannels,
       mirrorUnbans,
       announceInDiscord,
-      reasonTemplate
+      reasonTemplate,
+      unbanPollHours
     },
     errors: []
   };
@@ -582,15 +599,25 @@ export async function checkTrackedUnbans(twitchAPIClient) {
 }
 
 /**
- * Periodically run checkTrackedUnbans(). Mirrors the shape of streamStatusPoller.
+ * Periodically run checkTrackedUnbans(). The interval comes from the ban sync config
+ * (`unbanPollHours`, editable in the dashboard) and is re-read after every run and whenever
+ * the config changes, so no restart is needed. 0 pauses the check; the poller then just waits
+ * for the setting to change.
+ *
  * @param {Object} options
  * @param {Object} options.twitchAPIClient
- * @param {number} [options.intervalMs=60000]
  * @param {{ log: Function, error: Function }} [options.logger]
  */
-export function createBanSyncPoller({ twitchAPIClient, intervalMs = 60000, logger = console }) {
+export function createBanSyncPoller({ twitchAPIClient, logger = console }) {
   let timer = null;
   let polling = false;
+  let running = false;
+  let lastAnnouncedHours = null;
+
+  function currentHours() {
+    const hours = botState.getBanSyncConfig().unbanPollHours;
+    return Number.isFinite(hours) && hours >= 0 ? hours : DEFAULT_UNBAN_POLL_HOURS;
+  }
 
   async function pollOnce() {
     if (polling) return null;
@@ -605,18 +632,48 @@ export function createBanSyncPoller({ twitchAPIClient, intervalMs = 60000, logge
     }
   }
 
-  function start() {
-    if (timer) return;
-    timer = setInterval(() => {
-      pollOnce();
-    }, intervalMs);
+  function schedule() {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    if (!running) return;
+
+    const hours = currentHours();
+    if (hours !== lastAnnouncedHours) {
+      logger.log(
+        hours > 0
+          ? `[BanSync] Unban check every ${hours}h`
+          : "[BanSync] Unban check paused (interval set to 0)"
+      );
+      lastAnnouncedHours = hours;
+    }
+    if (hours <= 0) return; // paused until the config changes
+
+    timer = setTimeout(
+      async () => {
+        timer = null;
+        await pollOnce();
+        schedule();
+      },
+      Math.round(hours * 60 * 60 * 1000)
+    );
     timer.unref?.();
-    logger.log(`[BanSync] Unban poller started (every ${Math.round(intervalMs / 1000)}s)`);
+  }
+
+  function onConfigUpdate(data) {
+    if (data?.section === "banSync" || data?.config?.banSync) schedule();
+  }
+
+  function start() {
+    if (running) return;
+    running = true;
+    botState.on("runtimeConfig:updated", onConfigUpdate);
+    schedule();
   }
 
   function stop() {
-    if (!timer) return;
-    clearInterval(timer);
+    running = false;
+    botState.off("runtimeConfig:updated", onConfigUpdate);
+    if (timer) clearTimeout(timer);
     timer = null;
   }
 
@@ -625,7 +682,10 @@ export function createBanSyncPoller({ twitchAPIClient, intervalMs = 60000, logge
     stop,
     pollOnce,
     get running() {
-      return timer !== null;
+      return running;
+    },
+    get intervalHours() {
+      return currentHours();
     }
   };
 }
