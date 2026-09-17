@@ -295,6 +295,56 @@ export class TwitchAPIClient {
   }
 
   /**
+   * Look up the ban entries for a set of user IDs in a channel in one request per 100 users.
+   * Requires the moderation:read scope on the bot token.
+   * @param {string} channelName - Channel name (with or without #)
+   * @param {string[]} userIds - Twitch user IDs to check
+   * @returns {Promise<Map<string, {moderatorLogin: string, moderatorName: string, reason: string, expiresAt: string|null}>>}
+   *   Entries keyed by user ID; users not in the map are not banned (or timed out) there
+   */
+  async getBannedUsersByIds(channelName, userIds) {
+    const results = new Map();
+    const ids = [...new Set((userIds || []).filter(Boolean))];
+    if (!ids.length) return results;
+
+    const accessToken = await this.getAccessToken();
+    const { broadcasterId } = await this.getBroadcasterAndModeratorIds(channelName);
+
+    const batchSize = 100;
+    for (let i = 0; i < ids.length; i += batchSize) {
+      const batch = ids.slice(i, i + batchSize);
+      const params = batch.map((id) => `user_id=${encodeURIComponent(id)}`).join("&");
+      const response = await fetchWithTimeout(
+        `https://api.twitch.tv/helix/moderation/banned?broadcaster_id=${broadcasterId}&first=100&${params}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Client-Id": this.clientId
+          }
+        },
+        15000
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to look up bans: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      for (const entry of data.data || []) {
+        results.set(entry.user_id, {
+          moderatorLogin: entry.moderator_login || "",
+          moderatorName: entry.moderator_name || "",
+          reason: entry.reason || "",
+          expiresAt: entry.expires_at || null
+        });
+      }
+    }
+
+    return results;
+  }
+
+  /**
    * Warn a user in Twitch chat
    * @param {string} channelName - Channel name
    * @param {string} username - Username to warn

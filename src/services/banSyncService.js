@@ -1,4 +1,5 @@
 import botState from "../state/BotState.js";
+import { saveTrackedBans } from "../banSyncStore.js";
 
 /**
  * Ban sync: mirror bans from one "source" Twitch channel to one or more "target" channels.
@@ -8,8 +9,10 @@ import botState from "../state/BotState.js";
  * reaction or button, the dashboard, or an auto-ban rule). Bans in a target channel are never
  * mirrored anywhere, so the sync is strictly one-way.
  *
- * Unbans are only mirrored when the bot itself performs them (the Unban button on auto-ban
- * cards): Twitch IRC has no unban notice, so unbans done directly in Twitch chat are not seen.
+ * Twitch IRC has no unban notice, so unbans are handled two ways: immediately when the bot
+ * itself unbans someone (the Unban button on auto-ban cards), and by polling. Every mirrored ban
+ * is remembered in data/ban-sync-state.json; the poller asks Helix "Get Banned Users" for just
+ * those users and, when one is no longer banned in the source channel, lifts the mirrored bans.
  */
 
 export const DEFAULT_BAN_REASON_TEMPLATE = "Banned in {source} by {moderator}";
@@ -64,6 +67,83 @@ export function takeBanAttribution(channel, username) {
   pendingAttributions.delete(key);
   if (Date.now() - entry.timestamp > ATTRIBUTION_TTL_MS) return null;
   return entry.moderator;
+}
+
+// Bans this sync mirrored, keyed by login: { userId, source, targets, mirroredAt }.
+// Only these users are polled for unbans, so the poll cost scales with mirrored bans, not with
+// the channel's whole ban list.
+const trackedBans = new Map();
+const MAX_TRACKED_BANS = 5000;
+let persistQueue = Promise.resolve();
+
+function persistTrackedBans() {
+  const snapshot = [...trackedBans.entries()].map(([login, entry]) => ({ login, ...entry }));
+  persistQueue = persistQueue
+    .then(() => saveTrackedBans(snapshot))
+    .catch((error) => console.warn("[BanSync] Failed to save ban sync state:", error.message));
+  return persistQueue;
+}
+
+/**
+ * Load previously mirrored bans (from data/ban-sync-state.json) into memory.
+ * @param {Array<{login: string, userId?: string|null, source: string, targets: string[], mirroredAt?: number}>} entries
+ */
+export function hydrateTrackedBans(entries) {
+  trackedBans.clear();
+  for (const entry of entries || []) {
+    const login = (entry?.login ?? "").toString().toLowerCase();
+    const targets = Array.isArray(entry?.targets) ? entry.targets.map(normalizeChannel) : [];
+    if (!login || !targets.length) continue;
+    trackedBans.set(login, {
+      userId: entry.userId || null,
+      source: normalizeChannel(entry.source),
+      targets: [...new Set(targets.filter(Boolean))],
+      mirroredAt: Number(entry.mirroredAt) || Date.now()
+    });
+  }
+}
+
+/**
+ * @returns {Array<{login: string, userId: string|null, source: string, targets: string[], mirroredAt: number}>}
+ */
+export function getTrackedBans() {
+  return [...trackedBans.entries()].map(([login, entry]) => ({ login, ...entry }));
+}
+
+export function getTrackedBanCount() {
+  return trackedBans.size;
+}
+
+function trackMirroredBan(login, userId, source, targets) {
+  const existing = trackedBans.get(login);
+  const merged = new Set([...(existing?.targets || []), ...targets]);
+  trackedBans.set(login, {
+    userId: userId || existing?.userId || null,
+    source,
+    targets: [...merged],
+    mirroredAt: existing?.mirroredAt || Date.now()
+  });
+
+  // Bound the state file: drop the oldest entries once the cap is exceeded
+  if (trackedBans.size > MAX_TRACKED_BANS) {
+    const oldest = [...trackedBans.entries()]
+      .sort((a, b) => a[1].mirroredAt - b[1].mirroredAt)
+      .slice(0, trackedBans.size - MAX_TRACKED_BANS);
+    for (const [key] of oldest) trackedBans.delete(key);
+  }
+  return persistTrackedBans();
+}
+
+function untrackMirroredBan(login, targets) {
+  const existing = trackedBans.get(login);
+  if (!existing) return Promise.resolve();
+  const remaining = existing.targets.filter((t) => !targets.includes(t));
+  if (remaining.length) {
+    trackedBans.set(login, { ...existing, targets: remaining });
+  } else {
+    trackedBans.delete(login);
+  }
+  return persistTrackedBans();
 }
 
 /**
@@ -339,6 +419,18 @@ export async function mirrorBan(channel, username, twitchAPIClient) {
     }
   }
 
+  // Remember what we banned so an unban in the source can be detected and mirrored later.
+  // Targets that were already banned independently are not tracked: that ban was not ours.
+  if (result.mirrored.length) {
+    let userId = null;
+    try {
+      userId = await twitchAPIClient.getUserId(login);
+    } catch {
+      // The poller will resolve the id later
+    }
+    await trackMirroredBan(login, userId, source, result.mirrored);
+  }
+
   if (config.announceInDiscord && (result.mirrored.length || result.failed.length)) {
     const parts = [];
     if (result.mirrored.length) {
@@ -357,15 +449,18 @@ export async function mirrorBan(channel, username, twitchAPIClient) {
 }
 
 /**
- * Mirror an unban performed by the bot in `channel` to the configured target channels.
+ * Mirror an unban in `channel` to the configured target channels.
  * Only runs when `mirrorUnbans` is enabled.
  *
  * @param {string} channel - Channel the unban happened in (with or without #)
  * @param {string} username - Twitch login of the unbanned user
  * @param {Object} twitchAPIClient - TwitchAPIClient instance
+ * @param {Object} [options]
+ * @param {"bot"|"poll"} [options.detectedBy="bot"] - "bot" when the bot itself unbanned the user,
+ *   "poll" when the Helix poller noticed the source ban is gone
  * @returns {Promise<{ mirrored: string[], skipped: string[], failed: string[] }>}
  */
-export async function mirrorUnban(channel, username, twitchAPIClient) {
+export async function mirrorUnban(channel, username, twitchAPIClient, options = {}) {
   const result = { mirrored: [], skipped: [], failed: [] };
   const config = botState.getBanSyncConfig();
   if (!config.mirrorUnbans) return result;
@@ -374,6 +469,7 @@ export async function mirrorUnban(channel, username, twitchAPIClient) {
 
   const source = normalizeChannel(channel);
   const login = username.toLowerCase();
+  const detectedBy = options.detectedBy === "poll" ? "poll" : "bot";
 
   for (const target of targets) {
     try {
@@ -408,6 +504,10 @@ export async function mirrorUnban(channel, username, twitchAPIClient) {
     }
   }
 
+  // Stop tracking targets that are unbanned (or were not banned any more); keep failed ones
+  // so the poller retries them next round.
+  await untrackMirroredBan(login, [...result.mirrored, ...result.skipped]);
+
   if (config.announceInDiscord && (result.mirrored.length || result.failed.length)) {
     const parts = [];
     if (result.mirrored.length) {
@@ -416,11 +516,116 @@ export async function mirrorUnban(channel, username, twitchAPIClient) {
     if (result.failed.length) {
       parts.push(`failed to unban in ${result.failed.map((t) => `#${t}`).join(", ")}`);
     }
-    await announce(
-      source,
-      `Ban sync: **${login}** was unbanned in #${source}, ${parts.join("; ")}`
-    );
+    const how = detectedBy === "poll" ? "is no longer banned" : "was unbanned";
+    await announce(source, `Ban sync: **${login}** ${how} in #${source}, ${parts.join("; ")}`);
   }
 
   return result;
+}
+
+/**
+ * One poll round: ask Helix which tracked users are still banned in the source channel and
+ * mirror an unban for every one that no longer is. Users the sync banned in the targets but
+ * whose source ban was lifted by a moderator in Twitch chat are caught here.
+ *
+ * @param {Object} twitchAPIClient - TwitchAPIClient instance
+ * @returns {Promise<{ checked: number, unbanned: string[], failed: string[] }>}
+ */
+export async function checkTrackedUnbans(twitchAPIClient) {
+  const summary = { checked: 0, unbanned: [], failed: [] };
+  const config = botState.getBanSyncConfig();
+  if (!config.enabled || !config.mirrorUnbans || !twitchAPIClient) return summary;
+
+  const source = normalizeChannel(config.sourceChannel);
+  if (!source) return summary;
+
+  const candidates = [...trackedBans.entries()].filter(([, entry]) => entry.source === source);
+  if (!candidates.length) return summary;
+
+  // Resolve ids for entries that were tracked without one
+  let changed = false;
+  for (const [login, entry] of candidates) {
+    if (entry.userId) continue;
+    try {
+      entry.userId = await twitchAPIClient.getUserId(login);
+      changed = true;
+    } catch (error) {
+      console.warn(`[BanSync] Could not resolve user id for ${login}:`, error.message);
+    }
+  }
+  if (changed) await persistTrackedBans();
+
+  const withIds = candidates.filter(([, entry]) => entry.userId);
+  if (!withIds.length) return summary;
+
+  let stillBanned;
+  try {
+    stillBanned = await twitchAPIClient.getBannedUsersByIds(
+      `#${source}`,
+      withIds.map(([, entry]) => entry.userId)
+    );
+  } catch (error) {
+    console.warn(`[BanSync] Unban check failed for #${source}:`, error.message);
+    return summary;
+  }
+  summary.checked = withIds.length;
+
+  for (const [login, entry] of withIds) {
+    if (stillBanned.has(entry.userId)) continue;
+    console.log(`[BanSync] ${login} is no longer banned in #${source}, lifting mirrored ban(s)`);
+    const result = await mirrorUnban(`#${source}`, login, twitchAPIClient, { detectedBy: "poll" });
+    if (result.mirrored.length || result.skipped.length) summary.unbanned.push(login);
+    if (result.failed.length) summary.failed.push(login);
+  }
+
+  return summary;
+}
+
+/**
+ * Periodically run checkTrackedUnbans(). Mirrors the shape of streamStatusPoller.
+ * @param {Object} options
+ * @param {Object} options.twitchAPIClient
+ * @param {number} [options.intervalMs=60000]
+ * @param {{ log: Function, error: Function }} [options.logger]
+ */
+export function createBanSyncPoller({ twitchAPIClient, intervalMs = 60000, logger = console }) {
+  let timer = null;
+  let polling = false;
+
+  async function pollOnce() {
+    if (polling) return null;
+    polling = true;
+    try {
+      return await checkTrackedUnbans(twitchAPIClient);
+    } catch (error) {
+      logger.error(`[BanSync] Unban poll failed: ${error?.message || error}`);
+      return null;
+    } finally {
+      polling = false;
+    }
+  }
+
+  function start() {
+    if (timer) return;
+    timer = setInterval(() => {
+      pollOnce();
+    }, intervalMs);
+    timer.unref?.();
+    logger.log(`[BanSync] Unban poller started (every ${Math.round(intervalMs / 1000)}s)`);
+  }
+
+  function stop() {
+    if (!timer) return;
+    clearInterval(timer);
+    timer = null;
+  }
+
+  return {
+    start,
+    stop,
+    pollOnce,
+    get running() {
+      return timer !== null;
+    }
+  };
 }

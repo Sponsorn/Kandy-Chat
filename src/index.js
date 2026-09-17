@@ -20,6 +20,8 @@ import { saveMessage, scheduleCleanup, markMessageRelayed } from "./chatHistoryS
 import { startFreezeMonitor } from "./freezeMonitor.js";
 import { startWebServer } from "./server/webServer.js";
 import { createStreamStatusPoller } from "./services/streamStatusPoller.js";
+import { loadTrackedBans } from "./banSyncStore.js";
+import { hydrateTrackedBans, createBanSyncPoller } from "./services/banSyncService.js";
 import { ensureSubscriptions, readEventSubConfig } from "./services/eventSubManager.js";
 import { TwitchAPIClient } from "./api/TwitchAPIClient.js";
 import botState from "./state/BotState.js";
@@ -185,6 +187,17 @@ async function hydrateAutoBanRules() {
   }
 }
 
+// Hydrate the list of bans the ban sync mirrored (needed to detect unbans in the source channel)
+async function hydrateBanSyncState() {
+  try {
+    const tracked = await loadTrackedBans();
+    hydrateTrackedBans(tracked);
+    if (tracked.length) console.log(`Loaded ${tracked.length} mirrored ban(s) for ban sync`);
+  } catch (error) {
+    console.warn("Failed to load ban sync state", error);
+  }
+}
+
 // Create relay system message wrapper
 function createRelaySystemMessage(channelId) {
   return (message) => relaySystemMessage(message, channelId);
@@ -229,6 +242,7 @@ async function start() {
   await hydrateBlacklist();
   await hydrateRuntimeConfig();
   await hydrateAutoBanRules();
+  await hydrateBanSyncState();
 
   // Wire chat messages to persistent storage
   botState.on("chat:message", (messageData) => {
@@ -633,6 +647,14 @@ async function start() {
         )
     });
     streamStatusPoller.start();
+  }
+
+  // Ban sync: poll Helix for tracked users so unbans in the source channel (which IRC never
+  // announces) get mirrored to the target channels too.
+  const banSyncPollSeconds = Number.parseInt(process.env.BAN_SYNC_UNBAN_POLL_SECONDS, 10);
+  const banSyncPollMs = (Number.isFinite(banSyncPollSeconds) ? banSyncPollSeconds : 60) * 1000;
+  if (banSyncPollMs > 0) {
+    createBanSyncPoller({ twitchAPIClient, intervalMs: banSyncPollMs, logger: console }).start();
   }
 
   // Schedule token refresh

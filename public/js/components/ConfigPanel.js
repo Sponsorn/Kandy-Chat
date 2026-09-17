@@ -464,8 +464,9 @@ function BanSyncSection() {
     </${ConfigSection}>`;
   }
 
+  const tracked = data.trackedCount || 0;
   const summary = data.config.enabled
-    ? `Active: ${data.config.sourceChannel} → ${data.config.targetChannels.join(", ")}`
+    ? `Active: ${data.config.sourceChannel} → ${data.config.targetChannels.join(", ")} (${tracked} mirrored ban${tracked === 1 ? "" : "s"} tracked)`
     : "Inactive";
 
   return html`
@@ -569,7 +570,7 @@ function BanSyncSection() {
 
       <${ToggleSwitch}
         label="Mirror Unbans"
-        description="When the bot unbans a user in the source channel (Unban button on auto-ban cards), unban them in the targets too. Unbans done directly in Twitch chat are not detected."
+        description="When a mirrored user is unbanned in the source channel, unban them in the targets too. Bot unbans are mirrored at once; unbans done in Twitch chat are picked up by a Helix check about once a minute (needs the moderation:read scope)."
         checked=${edited.mirrorUnbans}
         onChange=${(v) => update({ mirrorUnbans: v })}
         disabled=${!isAdmin}

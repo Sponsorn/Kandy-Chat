@@ -13,7 +13,8 @@ import {
   DEFAULT_BAN_SYNC_CONFIG,
   REASON_TEMPLATE_TAGS,
   validateBanSyncConfig,
-  normalizeChannel
+  normalizeChannel,
+  getTrackedBanCount
 } from "../../services/banSyncService.js";
 import {
   loadAutoBanRules,
@@ -315,7 +316,8 @@ export function createConfigRoutes(options = {}) {
         reasonTemplate: current.reasonTemplate || DEFAULT_BAN_SYNC_CONFIG.reasonTemplate
       },
       channels: botState.twitchChannels.map(normalizeChannel).filter(Boolean),
-      availableTags: [...REASON_TEMPLATE_TAGS]
+      availableTags: [...REASON_TEMPLATE_TAGS],
+      trackedCount: getTrackedBanCount()
     });
   });
 

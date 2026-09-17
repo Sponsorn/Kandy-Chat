@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import botState from "../src/state/BotState.js";
+
+// Keep the tracked-ban state file out of the tests
+vi.mock("../src/banSyncStore.js", () => ({
+  loadTrackedBans: vi.fn(async () => []),
+  saveTrackedBans: vi.fn(async () => {})
+}));
+
+import { saveTrackedBans } from "../src/banSyncStore.js";
 import {
   DEFAULT_BAN_REASON_TEMPLATE,
   planBanMirror,
@@ -8,12 +16,22 @@ import {
   noteBanAttribution,
   takeBanAttribution,
   mirrorBan,
-  mirrorUnban
+  mirrorUnban,
+  hydrateTrackedBans,
+  getTrackedBans,
+  getTrackedBanCount,
+  checkTrackedUnbans,
+  createBanSyncPoller
 } from "../src/services/banSyncService.js";
 
 const KNOWN = ["#kandyland", "kandylandvods"];
 
-function makeClient({ banError = null, unbanError = null, bannedEntry = null } = {}) {
+function makeClient({
+  banError = null,
+  unbanError = null,
+  bannedEntry = null,
+  stillBannedIds = []
+} = {}) {
   return {
     banUser: vi.fn(async () => {
       if (banError) throw new Error(banError);
@@ -21,11 +39,21 @@ function makeClient({ banError = null, unbanError = null, bannedEntry = null } =
     unbanUser: vi.fn(async () => {
       if (unbanError) throw new Error(unbanError);
     }),
-    getBannedUser: vi.fn(async () => bannedEntry)
+    getBannedUser: vi.fn(async () => bannedEntry),
+    getUserId: vi.fn(async (login) => `id-${login.toLowerCase()}`),
+    getBannedUsersByIds: vi.fn(async (_channel, ids) => {
+      const map = new Map();
+      for (const id of ids) {
+        if (stillBannedIds.includes(id)) map.set(id, { moderatorName: "x", reason: "" });
+      }
+      return map;
+    })
   };
 }
 
 beforeEach(() => {
+  hydrateTrackedBans([]);
+  saveTrackedBans.mockClear();
   botState.runtimeConfig.banSync = {};
   botState.modActions = [];
   botState.discordChannels = [];
@@ -335,5 +363,197 @@ describe("mirrorUnban", () => {
     const result = await mirrorUnban("#kandyland", "spammer", client);
     expect(result.skipped).toEqual(["kandylandvods"]);
     expect(result.failed).toEqual([]);
+  });
+});
+
+describe("mirrored ban tracking", () => {
+  beforeEach(() => {
+    botState.runtimeConfig.banSync = {
+      enabled: true,
+      sourceChannel: "kandyland",
+      targetChannels: ["kandylandvods"],
+      mirrorUnbans: true,
+      announceInDiscord: false
+    };
+  });
+
+  it("remembers a mirrored ban with the user id and persists it", async () => {
+    await mirrorBan("#kandyland", "Spammer", makeClient());
+
+    expect(getTrackedBans()).toEqual([
+      expect.objectContaining({
+        login: "spammer",
+        userId: "id-spammer",
+        source: "kandyland",
+        targets: ["kandylandvods"]
+      })
+    ]);
+    expect(saveTrackedBans).toHaveBeenCalledTimes(1);
+    expect(saveTrackedBans.mock.calls[0][0][0]).toMatchObject({ login: "spammer" });
+  });
+
+  it("does not track a target that was already banned independently", async () => {
+    const client = makeClient({
+      banError:
+        "Failed to ban user: 400 - The user specified in the user_id field is already banned."
+    });
+    await mirrorBan("#kandyland", "spammer", client);
+    expect(getTrackedBanCount()).toBe(0);
+  });
+
+  it("forgets the entry once the mirrored unban went through", async () => {
+    await mirrorBan("#kandyland", "spammer", makeClient());
+    expect(getTrackedBanCount()).toBe(1);
+
+    await mirrorUnban("#kandyland", "spammer", makeClient());
+    expect(getTrackedBanCount()).toBe(0);
+  });
+
+  it("keeps the entry when the mirrored unban failed so the poller retries", async () => {
+    await mirrorBan("#kandyland", "spammer", makeClient());
+    await mirrorUnban("#kandyland", "spammer", makeClient({ unbanError: "500 boom" }));
+    expect(getTrackedBanCount()).toBe(1);
+  });
+
+  it("hydrates persisted entries and normalizes them", () => {
+    hydrateTrackedBans([
+      { login: "Spammer", userId: "1", source: "#Kandyland", targets: ["#KandylandVods"] },
+      { login: "", targets: ["x"] },
+      { login: "notargets", targets: [] }
+    ]);
+    expect(getTrackedBans()).toEqual([
+      expect.objectContaining({
+        login: "spammer",
+        userId: "1",
+        source: "kandyland",
+        targets: ["kandylandvods"]
+      })
+    ]);
+  });
+});
+
+describe("checkTrackedUnbans", () => {
+  beforeEach(() => {
+    botState.runtimeConfig.banSync = {
+      enabled: true,
+      sourceChannel: "kandyland",
+      targetChannels: ["kandylandvods"],
+      mirrorUnbans: true,
+      announceInDiscord: false
+    };
+    hydrateTrackedBans([
+      { login: "gone", userId: "id-gone", source: "kandyland", targets: ["kandylandvods"] },
+      {
+        login: "stillbanned",
+        userId: "id-stillbanned",
+        source: "kandyland",
+        targets: ["kandylandvods"]
+      }
+    ]);
+  });
+
+  it("unbans tracked users who are no longer banned in the source and leaves the rest", async () => {
+    const client = makeClient({ stillBannedIds: ["id-stillbanned"] });
+
+    const summary = await checkTrackedUnbans(client);
+
+    expect(client.getBannedUsersByIds).toHaveBeenCalledWith("#kandyland", [
+      "id-gone",
+      "id-stillbanned"
+    ]);
+    expect(summary).toEqual({ checked: 2, unbanned: ["gone"], failed: [] });
+    expect(client.unbanUser).toHaveBeenCalledTimes(1);
+    expect(client.unbanUser).toHaveBeenCalledWith("#kandylandvods", "gone");
+    expect(getTrackedBans().map((e) => e.login)).toEqual(["stillbanned"]);
+    expect(botState.modActions[0]).toMatchObject({
+      action: "unban",
+      moderator: "BanSync",
+      target: "gone",
+      details: { channel: "#kandylandvods", sourceChannel: "#kandyland" }
+    });
+  });
+
+  it("resolves missing user ids before checking", async () => {
+    hydrateTrackedBans([
+      { login: "noid", userId: null, source: "kandyland", targets: ["kandylandvods"] }
+    ]);
+    const client = makeClient({ stillBannedIds: ["id-noid"] });
+
+    const summary = await checkTrackedUnbans(client);
+
+    expect(client.getUserId).toHaveBeenCalledWith("noid");
+    expect(summary.checked).toBe(1);
+    expect(client.unbanUser).not.toHaveBeenCalled();
+    expect(getTrackedBans()[0].userId).toBe("id-noid");
+  });
+
+  it("does nothing when mirrorUnbans is off or the sync is disabled", async () => {
+    botState.runtimeConfig.banSync.mirrorUnbans = false;
+    const client = makeClient();
+    expect(await checkTrackedUnbans(client)).toEqual({ checked: 0, unbanned: [], failed: [] });
+    expect(client.getBannedUsersByIds).not.toHaveBeenCalled();
+
+    botState.runtimeConfig.banSync = {
+      ...botState.runtimeConfig.banSync,
+      mirrorUnbans: true,
+      enabled: false
+    };
+    expect(await checkTrackedUnbans(client)).toEqual({ checked: 0, unbanned: [], failed: [] });
+  });
+
+  it("ignores tracked entries from a different source channel", async () => {
+    hydrateTrackedBans([
+      { login: "other", userId: "id-other", source: "elsewhere", targets: ["kandylandvods"] }
+    ]);
+    const client = makeClient();
+    expect(await checkTrackedUnbans(client)).toEqual({ checked: 0, unbanned: [], failed: [] });
+    expect(client.getBannedUsersByIds).not.toHaveBeenCalled();
+  });
+
+  it("keeps everything tracked when the Helix lookup fails", async () => {
+    const client = makeClient();
+    client.getBannedUsersByIds = vi.fn(async () => {
+      throw new Error("Failed to look up bans: 401 - missing scope");
+    });
+
+    const summary = await checkTrackedUnbans(client);
+
+    expect(summary).toEqual({ checked: 0, unbanned: [], failed: [] });
+    expect(client.unbanUser).not.toHaveBeenCalled();
+    expect(getTrackedBanCount()).toBe(2);
+  });
+});
+
+describe("createBanSyncPoller", () => {
+  it("starts and stops an interval and runs the check", async () => {
+    vi.useFakeTimers();
+    botState.runtimeConfig.banSync = {
+      enabled: true,
+      sourceChannel: "kandyland",
+      targetChannels: ["kandylandvods"],
+      mirrorUnbans: true,
+      announceInDiscord: false
+    };
+    hydrateTrackedBans([
+      { login: "gone", userId: "id-gone", source: "kandyland", targets: ["kandylandvods"] }
+    ]);
+    const client = makeClient();
+    const poller = createBanSyncPoller({
+      twitchAPIClient: client,
+      intervalMs: 1000,
+      logger: { log: () => {}, error: () => {} }
+    });
+
+    poller.start();
+    expect(poller.running).toBe(true);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(1);
+    expect(client.unbanUser).toHaveBeenCalledWith("#kandylandvods", "gone");
+
+    poller.stop();
+    expect(poller.running).toBe(false);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
   });
 });

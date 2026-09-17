@@ -97,7 +97,7 @@ No build step — code runs directly via Node.js ESM modules.
 - Trigger is the tmi.js `ban` event (IRC CLEARCHAT without duration) in `twitchHandlers.js`, so bans from Twitch chat, Discord reactions/buttons, the dashboard and auto-ban all mirror; bans in a target channel never mirror back
 - `planBanMirror()` and `validateBanSyncConfig()` are the pure decision/validation functions (unit tested); `mirrorBan()` / `mirrorUnban()` call `TwitchAPIClient` and record Mod Log entries with moderator `BanSync`, source `auto`
 - Ban reason template tags: `{source}`, `{target}`, `{moderator}`, `{user}`, `{reason}`. `{moderator}` comes from `noteBanAttribution()` (called by every bot ban path right before `banUser()`), else from `TwitchAPIClient.getBannedUser()` (Helix Get Banned Users, needs `moderation:read`), else "a moderator"
-- Unbans are only mirrored when the bot performs them (Unban button in `discordHandlers.js`); IRC has no unban notice
+- Unbans: bot-performed ones (Unban button in `discordHandlers.js`) mirror immediately. IRC has no unban notice, so every mirrored ban is tracked in `data/ban-sync-state.json` (`banSyncStore.js`, hydrated at startup) and `createBanSyncPoller()` runs `checkTrackedUnbans()` every `BAN_SYNC_UNBAN_POLL_SECONDS` (default 60): `TwitchAPIClient.getBannedUsersByIds()` on the source channel, any tracked user missing from the result gets `mirrorUnban(..., { detectedBy: "poll" })`. Targets that were already banned independently are never tracked, so their bans are not lifted
 - Routes: `GET/PUT /api/ban-sync` in `configRoutes.js`; runtime copy in `BotState.getBanSyncConfig()` / `setBanSyncConfig()`
 
 #### [src/services/eventSubManager.js](src/services/eventSubManager.js)
@@ -238,6 +238,7 @@ Critical dependencies between env vars:
 - `data/emoji-mappings.json`: YouTube emoji → text mappings (managed via dashboard, read by youtube-relay)
 - `data/emoji-unmapped.json`: Shortcodes seen in YouTube chat with no mapping, with count, last seen and a sample message (written by youtube-relay, read by the dashboard's Emoji Mappings page via `GET /api/emoji-mappings/unmapped`; entries disappear once mapped)
 - `data/sessions.json`: Dashboard sessions (user profile, roles, permission level; no tokens), written by `sessionManager.js`
+- `data/ban-sync-state.json`: Bans the ban sync mirrored (login, user id, source, targets), polled for unbans; written by `banSyncStore.js`
 - `data/stream-status.json`: Per-channel live status (written by main bot on EventSub events, at startup, and by the Helix status poller; read by youtube-relay)
 
 ## Common Patterns
