@@ -110,18 +110,30 @@ export async function startWebServer(env, options = {}) {
     next();
   };
 
-  // Rate limiting for API endpoints
-  const rateLimits = new Map();
+  // Rate limiting for API endpoints. Each limiter keeps its own counters: sharing one map
+  // between /api and /auth meant ordinary dashboard API traffic tripped the much lower
+  // /auth limit and /auth/me answered 429 after a couple of page loads.
   const rateLimit = (maxRequests = 60, windowMs = 60000) => {
+    const records = new Map();
+    let lastPrune = Date.now();
+
     return (req, res, next) => {
       const key = req.ip || req.connection.remoteAddress;
       const now = Date.now();
       const windowStart = now - windowMs;
 
-      let record = rateLimits.get(key);
+      // Forget IPs whose window has expired so the map does not grow forever
+      if (now - lastPrune > windowMs) {
+        for (const [ip, rec] of records) {
+          if (rec.windowStart < windowStart) records.delete(ip);
+        }
+        lastPrune = now;
+      }
+
+      let record = records.get(key);
       if (!record || record.windowStart < windowStart) {
         record = { windowStart: now, count: 0 };
-        rateLimits.set(key, record);
+        records.set(key, record);
       }
 
       record.count++;
