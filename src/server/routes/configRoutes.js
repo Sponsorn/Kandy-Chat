@@ -20,7 +20,8 @@ import {
   loadAutoBanRules,
   addAutoBanRule,
   updateAutoBanRule,
-  removeAutoBanRule
+  removeAutoBanRule,
+  parseRegexInput
 } from "../../autoBanStore.js";
 
 /**
@@ -625,8 +626,10 @@ export function createConfigRoutes(options = {}) {
     }
 
     if (isRegex) {
+      // Accept `/pattern/flags` literal syntax; the store strips the delimiters
+      const parsed = parseRegexInput(pattern, flags);
       try {
-        new RegExp(pattern, flags || "i");
+        new RegExp(parsed.pattern, parsed.flags);
       } catch (error) {
         return res.status(400).json({ error: `Invalid regex: ${error.message}` });
       }
@@ -678,8 +681,9 @@ export function createConfigRoutes(options = {}) {
       const pattern = updates.pattern || req.body.pattern;
       const flags = updates.flags || req.body.flags || "i";
       if (pattern) {
+        const parsed = parseRegexInput(pattern, flags);
         try {
-          new RegExp(pattern, flags);
+          new RegExp(parsed.pattern, parsed.flags);
         } catch (error) {
           return res.status(400).json({ error: `Invalid regex: ${error.message}` });
         }
