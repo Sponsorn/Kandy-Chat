@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { checkAutoBan } from "../src/services/autoBanService.js";
+import { checkAutoBan, isFirstMessage } from "../src/services/autoBanService.js";
 import botState from "../src/state/BotState.js";
 
 describe("checkAutoBan", () => {
@@ -28,6 +28,38 @@ describe("checkAutoBan", () => {
     const result = checkAutoBan("visit example .com now", { "first-msg": "1" });
     expect(result.matched).toBe(true);
     expect(result.rule.id).toBe("r1");
+  });
+
+  it("matches a firstMsgOnly rule when tmi.js delivers first-msg as boolean true", () => {
+    const rule = {
+      id: "r1",
+      pattern: "\\bstream\\s*boo\\s*(?:\\.|,|\\(?dot\\)?)\\s*c\\s*o\\s*m\\b",
+      isRegex: true,
+      flags: "i",
+      enabled: true,
+      firstMsgOnly: true
+    };
+    botState.autoBanRules = [rule];
+    botState.autoBanCompiledRegexes.set("r1", new RegExp(rule.pattern, rule.flags));
+
+    const result = checkAutoBan("Ai Viewers streamboo . Com", { "first-msg": true });
+    expect(result.matched).toBe(true);
+    expect(result.rule.id).toBe("r1");
+  });
+
+  it("skips firstMsgOnly rule when tmi.js delivers first-msg as boolean false", () => {
+    const rule = {
+      id: "r1",
+      pattern: "spam",
+      isRegex: false,
+      flags: "i",
+      enabled: true,
+      firstMsgOnly: true
+    };
+    botState.autoBanRules = [rule];
+
+    const result = checkAutoBan("spam link", { "first-msg": false });
+    expect(result.matched).toBe(false);
   });
 
   it("skips firstMsgOnly rule when not first message", () => {
@@ -126,5 +158,19 @@ describe("checkAutoBan", () => {
 
     const result = checkAutoBan("test", {});
     expect(result.matched).toBe(false);
+  });
+});
+
+describe("isFirstMessage", () => {
+  it("accepts the boolean form tmi.js emits and the raw IRC string", () => {
+    expect(isFirstMessage({ "first-msg": true })).toBe(true);
+    expect(isFirstMessage({ "first-msg": "1" })).toBe(true);
+  });
+
+  it("is false for other values or missing tags", () => {
+    expect(isFirstMessage({ "first-msg": false })).toBe(false);
+    expect(isFirstMessage({ "first-msg": "0" })).toBe(false);
+    expect(isFirstMessage({})).toBe(false);
+    expect(isFirstMessage(undefined)).toBe(false);
   });
 });

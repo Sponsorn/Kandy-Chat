@@ -3,7 +3,7 @@ import botState from "../state/BotState.js";
 import { normalizeMessage, shouldBlockMessage } from "../filters.js";
 import { relayToDiscord, recordRelayMapping } from "../services/relayService.js";
 import { buildDeletedV2Message } from "../services/messageBuilder.js";
-import { checkAutoBan, executeAutoBan } from "../services/autoBanService.js";
+import { checkAutoBan, executeAutoBan, isFirstMessage } from "../services/autoBanService.js";
 import { mirrorBan } from "../services/banSyncService.js";
 
 const GIFT_SUB_BATCH_MS = 1500;
@@ -232,7 +232,7 @@ async function handleTwitchMessage(
     message: message,
     color: tags?.color || null,
     badges: tags?.badges || {},
-    firstMsg: tags?.["first-msg"] === "1",
+    firstMsg: isFirstMessage(tags),
     relayed: false
   };
   const added = botState.addChatMessage(chatMessageData);

@@ -4,6 +4,18 @@ import { formatRelayMessage, recordRelayMapping } from "./relayService.js";
 import { noteBanAttribution } from "./banSyncService.js";
 
 /**
+ * Whether the IRC tags mark this as the user's first message in the channel.
+ * tmi.js converts the raw "1"/"0" tag values to booleans before emitting the
+ * message event, so both forms are accepted.
+ * @param {Object} tags - Twitch IRC tags
+ * @returns {boolean}
+ */
+export function isFirstMessage(tags) {
+  const value = tags?.["first-msg"];
+  return value === true || value === "1";
+}
+
+/**
  * Check if a message matches any enabled auto-ban rule
  * @param {string} message - Normalized message text
  * @param {Object} tags - Twitch IRC tags
@@ -13,7 +25,7 @@ export function checkAutoBan(message, tags) {
   const rules = botState.autoBanRules;
   if (!rules.length) return { matched: false };
 
-  const isFirstMsg = tags?.["first-msg"] === "1";
+  const isFirstMsg = isFirstMessage(tags);
   const lowerMessage = message.toLowerCase();
 
   for (const rule of rules) {
@@ -59,7 +71,7 @@ export async function executeAutoBan(
 ) {
   const channelName = channel.startsWith("#") ? channel : `#${channel}`;
   const twitchUsername = tags?.username ?? username;
-  const isFirstMsg = tags?.["first-msg"] === "1";
+  const isFirstMsg = isFirstMessage(tags);
   const patternDisplay = rule.isRegex ? `/${rule.pattern}/${rule.flags || "i"}` : rule.pattern;
 
   // Ban the user
