@@ -21,6 +21,7 @@ import { startFreezeMonitor } from "./freezeMonitor.js";
 import { startWebServer } from "./server/webServer.js";
 import { createStreamStatusPoller } from "./services/streamStatusPoller.js";
 import { loadTrackedBans } from "./banSyncStore.js";
+import { attachLogPersistence } from "./logStore.js";
 import { hydrateTrackedBans, createBanSyncPoller } from "./services/banSyncService.js";
 import { ensureSubscriptions, readEventSubConfig } from "./services/eventSubManager.js";
 import { TwitchAPIClient } from "./api/TwitchAPIClient.js";
@@ -56,6 +57,15 @@ console.warn = (...args) => {
   originalConsoleWarn(`[${getTimestamp()}]`, ...args);
   botState.addLogEntry("warn", args);
 };
+
+// Restore dashboard logs (bot log, audit log, mod log) from the previous run and keep them
+// mirrored to data/ so they survive restarts
+const { restored: restoredLogs } = attachLogPersistence(botState);
+if (restoredLogs.logBuffer || restoredLogs.auditLog || restoredLogs.modActions) {
+  console.log(
+    `Restored dashboard logs: ${restoredLogs.logBuffer} bot log, ${restoredLogs.auditLog} audit, ${restoredLogs.modActions} mod entries`
+  );
+}
 
 // Validate configuration
 validateConfigOrThrow(process.env);

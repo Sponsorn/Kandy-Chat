@@ -319,6 +319,17 @@ class BotState extends EventEmitter {
   }
 
   /**
+   * Restore persisted logs (see logStore.js). Entries recorded before hydration are kept and
+   * take their natural place: bot log is oldest-first, audit/mod logs are newest-first.
+   * @param {{ logBuffer?: Array, auditLog?: Array, modActions?: Array }} logs
+   */
+  hydrateLogs({ logBuffer = [], auditLog = [], modActions = [] } = {}) {
+    this.logBuffer = [...logBuffer, ...this.logBuffer].slice(-this.maxLogBuffer);
+    this.auditLog = [...this.auditLog, ...auditLog].slice(0, this.maxAuditLogEntries);
+    this.modActions = [...this.modActions, ...modActions].slice(0, this.maxModActions);
+  }
+
+  /**
    * Add a log entry to the buffer (for console output streaming)
    * @param {string} level - Log level: "info", "warn", "error"
    * @param {Array} args - Console arguments

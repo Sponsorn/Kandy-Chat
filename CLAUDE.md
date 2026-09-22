@@ -58,6 +58,11 @@ No build step — code runs directly via Node.js ESM modules.
 - Persistent JSON storage for blacklist words/regex patterns in `data/blacklist.json`
 - Supports plain text and regex entries (format: `/pattern/flags`)
 
+#### [src/logStore.js](src/logStore.js)
+- Persists the three in-memory logs in `BotState` (`logBuffer`, `auditLog`, `modActions`) to `data/bot-log.json`, `data/audit-log.json`, `data/mod-log.json`
+- `attachLogPersistence(botState)` (called once in `src/index.js` right after the console overrides) hydrates via `botState.hydrateLogs()`, then subscribes to the `bot:log` / `audit:event` / `mod:action` events and schedules debounced writes; `flushLogs()` runs on process `exit`, and SIGTERM/SIGINT are turned into a clean `process.exit(0)` so the last entries are written
+- `configureLogStore({ dir })` / `detachLogPersistence()` exist for tests
+
 #### [src/twitchAuth.js](src/twitchAuth.js)
 - OAuth token refresh using Twitch refresh tokens
 - Called by `tokenService.js` which persists new tokens to `data/tokens.json`
@@ -237,6 +242,7 @@ Critical dependencies between env vars:
 - `data/tokens.json`: Shared access + refresh tokens (written by main bot, read by youtube-relay)
 - `data/emoji-mappings.json`: YouTube emoji → text mappings (managed via dashboard, read by youtube-relay)
 - `data/emoji-unmapped.json`: Shortcodes seen in YouTube chat with no mapping, with count, last seen and a sample message (written by youtube-relay, read by the dashboard's Emoji Mappings page via `GET /api/emoji-mappings/unmapped`; entries disappear once mapped)
+- `data/bot-log.json`, `data/audit-log.json`, `data/mod-log.json`: The dashboard's Bot Log, Audit Log and Mod Log (last 500 entries each), written by `logStore.js` with debounced atomic writes (mode 0600) and flushed on exit/SIGTERM/SIGINT; hydrated into `BotState` at startup so the dashboard log pages survive restarts
 - `data/sessions.json`: Dashboard sessions (user profile, roles, permission level; no tokens), written by `sessionManager.js`
 - `data/ban-sync-state.json`: Bans the ban sync mirrored (login, user id, source, targets), polled for unbans; written by `banSyncStore.js`
 - `data/stream-status.json`: Per-channel live status (written by main bot on EventSub events, at startup, and by the Helix status poller; read by youtube-relay)
@@ -276,6 +282,7 @@ Usage: call methods like `twitchAPIClient.deleteMessage()`, `twitchAPIClient.ban
   - `tests/configValidator.test.js`: `validateConfig()` — required fields, Discord IDs, auth modes, channel mapping, EventSub, freeze monitor
   - `tests/eventSubManager.test.js`: `planReconciliation()`, `readEventSubConfig()`, `ensureSubscriptions()` with a mocked fetch
   - `tests/streamStatusPoller.test.js`: confirmation counting, per-channel handling, timer start/stop
+  - `tests/logStore.test.js`: `loadPersistedLogs()`, `attachLogPersistence()` hydration/merge order, debounced writes, `flushLogs()`, corrupt file handling
   - `tests/banSyncService.test.js`: `planBanMirror()`, `validateBanSyncConfig()`, `renderBanReason()`, attribution, `mirrorBan()` / `mirrorUnban()` with a mocked API client
 
 ## YouTube Relay (`youtube-relay/`)
