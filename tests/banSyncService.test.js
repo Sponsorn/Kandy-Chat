@@ -20,38 +20,31 @@ import {
   hydrateTrackedBans,
   getTrackedBans,
   getTrackedBanCount,
-  checkTrackedUnbans,
-  createBanSyncPoller
+  handleModerationEvent,
+  setAttributionWaitMs
 } from "../src/services/banSyncService.js";
 
 const KNOWN = ["#kandyland", "kandylandvods"];
 
-function makeClient({
-  banError = null,
-  unbanError = null,
-  bannedEntry = null,
-  stillBannedIds = []
-} = {}) {
+function makeClient({ banError = null, unbanError = null } = {}) {
   return {
     banUser: vi.fn(async () => {
       if (banError) throw new Error(banError);
     }),
     unbanUser: vi.fn(async () => {
       if (unbanError) throw new Error(unbanError);
-    }),
-    getBannedUser: vi.fn(async () => bannedEntry),
-    getUserId: vi.fn(async (login) => `id-${login.toLowerCase()}`),
-    getBannedUsersByIds: vi.fn(async (_channel, ids) => {
-      const map = new Map();
-      for (const id of ids) {
-        if (stillBannedIds.includes(id)) map.set(id, { moderatorName: "x", reason: "" });
-      }
-      return map;
     })
   };
 }
 
+const tracked = (login, targets = ["kandylandvods"], source = "kandyland") => ({
+  login,
+  source,
+  targets
+});
+
 beforeEach(() => {
+  setAttributionWaitMs(0);
   hydrateTrackedBans([]);
   saveTrackedBans.mockClear();
   botState.runtimeConfig.banSync = {};
@@ -110,8 +103,7 @@ describe("validateBanSyncConfig", () => {
       targetChannels: ["kandylandvods"],
       mirrorUnbans: false,
       announceInDiscord: true,
-      reasonTemplate: "Banned in main channel by {moderator}",
-      unbanPollHours: 1
+      reasonTemplate: "Banned in main channel by {moderator}"
     });
   });
 
@@ -157,17 +149,6 @@ describe("validateBanSyncConfig", () => {
     expect(errors).toContain("targetChannels must be an array");
     expect(errors).toContain("reasonTemplate must be a string");
   });
-
-  it("validates the unban poll interval in hours", () => {
-    expect(validateBanSyncConfig({ unbanPollHours: 6 }, KNOWN).config.unbanPollHours).toBe(6);
-    expect(validateBanSyncConfig({ unbanPollHours: "0.5" }, KNOWN).config.unbanPollHours).toBe(0.5);
-    expect(validateBanSyncConfig({ unbanPollHours: 0 }, KNOWN).config.unbanPollHours).toBe(0);
-    expect(validateBanSyncConfig({}, KNOWN).config.unbanPollHours).toBe(1);
-    for (const bad of [-1, 999, "soon"]) {
-      const { errors } = validateBanSyncConfig({ unbanPollHours: bad }, KNOWN);
-      expect(errors.join(" ")).toMatch(/unbanPollHours/);
-    }
-  });
 });
 
 describe("renderBanReason", () => {
@@ -199,9 +180,12 @@ describe("renderBanReason", () => {
 });
 
 describe("ban attribution", () => {
-  it("remembers who asked for a ban once, case-insensitively", () => {
-    noteBanAttribution("#Kandyland", "Spammer", "Anton");
-    expect(takeBanAttribution("kandyland", "spammer")).toBe("Anton");
+  it("remembers who banned once, case-insensitively, with the reason", () => {
+    noteBanAttribution("#Kandyland", "Spammer", "Anton", "spam");
+    expect(takeBanAttribution("kandyland", "spammer")).toEqual({
+      moderator: "Anton",
+      reason: "spam"
+    });
     expect(takeBanAttribution("kandyland", "spammer")).toBeNull();
   });
 
@@ -236,7 +220,6 @@ describe("mirrorBan", () => {
       "spammer",
       "Banned in main channel by Anton"
     );
-    expect(client.getBannedUser).not.toHaveBeenCalled();
     expect(botState.modActions[0]).toMatchObject({
       action: "ban",
       moderator: "BanSync",
@@ -247,30 +230,33 @@ describe("mirrorBan", () => {
     });
   });
 
-  it("looks up the Twitch moderator via Helix for bans the bot did not issue", async () => {
-    const client = makeClient({
-      bannedEntry: { moderatorLogin: "modname", moderatorName: "ModName", reason: "rude" }
-    });
+  it("credits the Twitch moderator from a channel.moderate notice that arrives after IRC", async () => {
+    setAttributionWaitMs(2000);
+    botState.runtimeConfig.banSync.reasonTemplate = "{moderator}: {reason}";
+    const client = makeClient();
 
-    const result = await mirrorBan("#kandyland", "spammer", client);
+    const pending = mirrorBan("#kandyland", "spammer", client);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await handleModerationEvent(
+      {
+        action: "ban",
+        broadcaster_user_login: "kandyland",
+        moderator_user_login: "modname",
+        moderator_user_name: "ModName",
+        ban: { user_login: "spammer", reason: "rude" }
+      },
+      client,
+      { botLogin: "kandybot" }
+    );
+    const result = await pending;
 
     expect(result.moderator).toBe("ModName");
-    expect(client.getBannedUser).toHaveBeenCalledWith("#kandyland", "spammer");
-    expect(client.banUser).toHaveBeenCalledWith(
-      "#kandylandvods",
-      "spammer",
-      "Banned in main channel by ModName"
-    );
+    expect(client.banUser).toHaveBeenCalledWith("#kandylandvods", "spammer", "ModName: rude");
   });
 
-  it("falls back to a generic moderator when the lookup fails", async () => {
+  it("falls back to a generic moderator when no attribution arrives", async () => {
     const client = makeClient();
-    client.getBannedUser = vi.fn(async () => {
-      throw new Error("Failed to look up ban: 401 - missing scope");
-    });
-
     const result = await mirrorBan("#kandyland", "spammer", client);
-
     expect(result.mirrored).toEqual(["kandylandvods"]);
     expect(client.banUser).toHaveBeenCalledWith(
       "#kandylandvods",
@@ -284,7 +270,6 @@ describe("mirrorBan", () => {
     const result = await mirrorBan("#kandylandvods", "spammer", client);
     expect(result.mirrored).toEqual([]);
     expect(client.banUser).not.toHaveBeenCalled();
-    expect(client.getBannedUser).not.toHaveBeenCalled();
   });
 
   it("does nothing when disabled", async () => {
@@ -346,18 +331,27 @@ describe("mirrorUnban", () => {
     botState.runtimeConfig.banSync = {
       enabled: true,
       sourceChannel: "kandyland",
-      targetChannels: ["kandylandvods"],
+      targetChannels: ["kandylandvods", "kandyclips"],
       mirrorUnbans: true,
       announceInDiscord: false
     };
+    hydrateTrackedBans([tracked("spammer")]);
   });
 
-  it("unbans the user in the target", async () => {
+  it("unbans the user only in the targets the sync banned them in", async () => {
     const client = makeClient();
     const result = await mirrorUnban("#kandyland", "Spammer", client);
     expect(result.mirrored).toEqual(["kandylandvods"]);
+    expect(client.unbanUser).toHaveBeenCalledTimes(1);
     expect(client.unbanUser).toHaveBeenCalledWith("#kandylandvods", "spammer");
     expect(botState.modActions[0]).toMatchObject({ action: "unban", moderator: "BanSync" });
+  });
+
+  it("leaves bans the sync did not place alone", async () => {
+    const client = makeClient();
+    const result = await mirrorUnban("#kandyland", "someoneelse", client);
+    expect(result.mirrored).toEqual([]);
+    expect(client.unbanUser).not.toHaveBeenCalled();
   });
 
   it("respects the mirrorUnbans switch", async () => {
@@ -376,6 +370,18 @@ describe("mirrorUnban", () => {
     expect(result.skipped).toEqual(["kandylandvods"]);
     expect(result.failed).toEqual([]);
   });
+
+  it("names the moderator who lifted the source ban in Discord", async () => {
+    botState.runtimeConfig.banSync.announceInDiscord = true;
+    const discord = { id: "111", isTextBased: () => true, send: vi.fn(async () => ({})) };
+    botState.discordChannels = [discord];
+
+    await mirrorUnban("#kandyland", "spammer", makeClient(), { moderator: "ModName" });
+
+    expect(discord.send.mock.calls[0][0]).toContain(
+      "**spammer** was unbanned in #kandyland by ModName, also unbanned in #kandylandvods"
+    );
+  });
 });
 
 describe("mirrored ban tracking", () => {
@@ -389,13 +395,12 @@ describe("mirrored ban tracking", () => {
     };
   });
 
-  it("remembers a mirrored ban with the user id and persists it", async () => {
+  it("remembers a mirrored ban and persists it", async () => {
     await mirrorBan("#kandyland", "Spammer", makeClient());
 
     expect(getTrackedBans()).toEqual([
       expect.objectContaining({
         login: "spammer",
-        userId: "id-spammer",
         source: "kandyland",
         targets: ["kandylandvods"]
       })
@@ -421,7 +426,7 @@ describe("mirrored ban tracking", () => {
     expect(getTrackedBanCount()).toBe(0);
   });
 
-  it("keeps the entry when the mirrored unban failed so the poller retries", async () => {
+  it("keeps the entry when the mirrored unban failed so a later unban can retry", async () => {
     await mirrorBan("#kandyland", "spammer", makeClient());
     await mirrorUnban("#kandyland", "spammer", makeClient({ unbanError: "500 boom" }));
     expect(getTrackedBanCount()).toBe(1);
@@ -444,7 +449,16 @@ describe("mirrored ban tracking", () => {
   });
 });
 
-describe("checkTrackedUnbans", () => {
+describe("handleModerationEvent", () => {
+  const event = (action, extra = {}) => ({
+    action,
+    broadcaster_user_login: "kandyland",
+    moderator_user_login: "modname",
+    moderator_user_name: "ModName",
+    source_broadcaster_user_login: null,
+    ...extra
+  });
+
   beforeEach(() => {
     botState.runtimeConfig.banSync = {
       enabled: true,
@@ -453,189 +467,74 @@ describe("checkTrackedUnbans", () => {
       mirrorUnbans: true,
       announceInDiscord: false
     };
-    hydrateTrackedBans([
-      { login: "gone", userId: "id-gone", source: "kandyland", targets: ["kandylandvods"] },
-      {
-        login: "stillbanned",
-        userId: "id-stillbanned",
-        source: "kandyland",
-        targets: ["kandylandvods"]
-      }
-    ]);
+    hydrateTrackedBans([tracked("spammer")]);
   });
 
-  it("unbans tracked users who are no longer banned in the source and leaves the rest", async () => {
-    const client = makeClient({ stillBannedIds: ["id-stillbanned"] });
+  it("mirrors an unban done in Twitch chat", async () => {
+    const client = makeClient();
+    const result = await handleModerationEvent(
+      event("unban", { unban: { user_login: "Spammer" } }),
+      client,
+      { botLogin: "kandybot" }
+    );
+    expect(result).toEqual({ action: "unban", handled: true });
+    expect(client.unbanUser).toHaveBeenCalledWith("#kandylandvods", "spammer");
+    expect(getTrackedBanCount()).toBe(0);
+  });
 
-    const summary = await checkTrackedUnbans(client);
+  it("does not lift anything for an unban in a target channel", async () => {
+    const client = makeClient();
+    await handleModerationEvent(
+      event("unban", { broadcaster_user_login: "kandylandvods", unban: { user_login: "spammer" } }),
+      client
+    );
+    expect(client.unbanUser).not.toHaveBeenCalled();
+  });
 
-    expect(client.getBannedUsersByIds).toHaveBeenCalledWith("#kandyland", [
-      "id-gone",
-      "id-stillbanned"
-    ]);
-    expect(summary).toEqual({ checked: 2, unbanned: ["gone"], failed: [] });
+  it("does nothing on the second notice of an unban the bot already mirrored", async () => {
+    const client = makeClient();
+    await mirrorUnban("#kandyland", "spammer", client);
+    await handleModerationEvent(
+      event("unban", { moderator_user_login: "kandybot", unban: { user_login: "spammer" } }),
+      client,
+      { botLogin: "kandybot" }
+    );
     expect(client.unbanUser).toHaveBeenCalledTimes(1);
-    expect(client.unbanUser).toHaveBeenCalledWith("#kandylandvods", "gone");
-    expect(getTrackedBans().map((e) => e.login)).toEqual(["stillbanned"]);
-    expect(botState.modActions[0]).toMatchObject({
-      action: "unban",
-      moderator: "BanSync",
-      target: "gone",
-      details: { channel: "#kandylandvods", sourceChannel: "#kandyland" }
-    });
   });
 
-  it("resolves missing user ids before checking", async () => {
-    hydrateTrackedBans([
-      { login: "noid", userId: null, source: "kandyland", targets: ["kandylandvods"] }
-    ]);
-    const client = makeClient({ stillBannedIds: ["id-noid"] });
-
-    const summary = await checkTrackedUnbans(client);
-
-    expect(client.getUserId).toHaveBeenCalledWith("noid");
-    expect(summary.checked).toBe(1);
-    expect(client.unbanUser).not.toHaveBeenCalled();
-    expect(getTrackedBans()[0].userId).toBe("id-noid");
-  });
-
-  it("does nothing when mirrorUnbans is off or the sync is disabled", async () => {
-    botState.runtimeConfig.banSync.mirrorUnbans = false;
-    const client = makeClient();
-    expect(await checkTrackedUnbans(client)).toEqual({ checked: 0, unbanned: [], failed: [] });
-    expect(client.getBannedUsersByIds).not.toHaveBeenCalled();
-
-    botState.runtimeConfig.banSync = {
-      ...botState.runtimeConfig.banSync,
-      mirrorUnbans: true,
-      enabled: false
-    };
-    expect(await checkTrackedUnbans(client)).toEqual({ checked: 0, unbanned: [], failed: [] });
-  });
-
-  it("ignores tracked entries from a different source channel", async () => {
-    hydrateTrackedBans([
-      { login: "other", userId: "id-other", source: "elsewhere", targets: ["kandylandvods"] }
-    ]);
-    const client = makeClient();
-    expect(await checkTrackedUnbans(client)).toEqual({ checked: 0, unbanned: [], failed: [] });
-    expect(client.getBannedUsersByIds).not.toHaveBeenCalled();
-  });
-
-  it("keeps everything tracked when the Helix lookup fails", async () => {
-    const client = makeClient();
-    client.getBannedUsersByIds = vi.fn(async () => {
-      throw new Error("Failed to look up bans: 401 - missing scope");
+  it("remembers the Twitch moderator of a ban, but not the bot's own bans", async () => {
+    await handleModerationEvent(
+      event("ban", { ban: { user_login: "spammer", reason: "rude" } }),
+      makeClient(),
+      { botLogin: "kandybot" }
+    );
+    expect(takeBanAttribution("kandyland", "spammer")).toEqual({
+      moderator: "ModName",
+      reason: "rude"
     });
 
-    const summary = await checkTrackedUnbans(client);
-
-    expect(summary).toEqual({ checked: 0, unbanned: [], failed: [] });
-    expect(client.unbanUser).not.toHaveBeenCalled();
-    expect(getTrackedBanCount()).toBe(2);
-  });
-});
-
-describe("createBanSyncPoller", () => {
-  const silent = { log: () => {}, error: () => {} };
-  const HOUR = 60 * 60 * 1000;
-
-  function arm(hours) {
-    botState.runtimeConfig.banSync = {
-      enabled: true,
-      sourceChannel: "kandyland",
-      targetChannels: ["kandylandvods"],
-      mirrorUnbans: true,
-      announceInDiscord: false,
-      unbanPollHours: hours
-    };
-    hydrateTrackedBans([
-      { login: "gone", userId: "id-gone", source: "kandyland", targets: ["kandylandvods"] }
-    ]);
-  }
-
-  it("checks shortly after start, then on the dashboard interval, and stops cleanly", async () => {
-    vi.useFakeTimers();
-    arm(2);
-    const client = makeClient({ stillBannedIds: ["id-gone"] });
-    const poller = createBanSyncPoller({ twitchAPIClient: client, logger: silent });
-
-    poller.start();
-    expect(poller.running).toBe(true);
-    expect(poller.intervalHours).toBe(2);
-    await vi.advanceTimersByTimeAsync(60 * 1000 - 1);
-    expect(client.getBannedUsersByIds).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(1);
-    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(1);
-
-    await vi.advanceTimersByTimeAsync(2 * HOUR - 1);
-    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(1);
-    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(2);
-
-    poller.stop();
-    expect(poller.running).toBe(false);
-    await vi.advanceTimersByTimeAsync(24 * HOUR);
-    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(2);
-    vi.useRealTimers();
+    noteBanAttribution("kandyland", "other", "Anton");
+    await handleModerationEvent(
+      event("ban", { moderator_user_login: "kandybot", ban: { user_login: "other" } }),
+      makeClient(),
+      { botLogin: "kandybot" }
+    );
+    expect(takeBanAttribution("kandyland", "other")).toMatchObject({ moderator: "Anton" });
   });
 
-  it("lifts a mirrored ban on the first check after a restart", async () => {
-    vi.useFakeTimers();
-    arm(1);
+  it("ignores actions from another channel in a shared chat session and other actions", async () => {
     const client = makeClient();
-    const poller = createBanSyncPoller({ twitchAPIClient: client, logger: silent });
-    poller.start();
-    await vi.advanceTimersByTimeAsync(60 * 1000);
-    expect(client.unbanUser).toHaveBeenCalledWith("#kandylandvods", "gone");
-    poller.stop();
-    vi.useRealTimers();
-  });
-
-  it("does not push the next check back when unrelated config is saved", async () => {
-    vi.useFakeTimers();
-    arm(1);
-    const client = makeClient({ stillBannedIds: ["id-gone"] });
-    const poller = createBanSyncPoller({ twitchAPIClient: client, logger: silent });
-    poller.start();
-    await vi.advanceTimersByTimeAsync(60 * 1000);
-    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(1);
-
-    // Saving sub messages re-emits the whole runtime config every 45 minutes
-    for (let i = 0; i < 4; i++) {
-      await vi.advanceTimersByTimeAsync(0.75 * HOUR);
-      botState.setRuntimeConfig({ subscriptionMessages: {} });
-    }
-    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(4);
-    poller.stop();
-    vi.useRealTimers();
-  });
-
-  it("picks up a changed interval without a restart and pauses at 0", async () => {
-    vi.useFakeTimers();
-    arm(1);
-    const client = makeClient({ stillBannedIds: ["id-gone"] });
-    const poller = createBanSyncPoller({ twitchAPIClient: client, logger: silent });
-    poller.start();
-    await vi.advanceTimersByTimeAsync(60 * 1000);
-    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(1);
-
-    // Dashboard saves a new interval: the poller re-arms with it
-    botState.setBanSyncConfig({ ...botState.runtimeConfig.banSync, unbanPollHours: 0.5 });
-    await vi.advanceTimersByTimeAsync(0.5 * HOUR);
-    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(2);
-
-    // 0 pauses the check entirely
-    botState.setBanSyncConfig({ ...botState.runtimeConfig.banSync, unbanPollHours: 0 });
-    await vi.advanceTimersByTimeAsync(48 * HOUR);
-    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(2);
-
-    // and a non-zero value resumes it (overdue, so right away)
-    botState.setBanSyncConfig({ ...botState.runtimeConfig.banSync, unbanPollHours: 0.5 });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(3);
-
-    poller.stop();
-    vi.useRealTimers();
+    await handleModerationEvent(
+      event("unban", {
+        source_broadcaster_user_login: "otherchannel",
+        unban: { user_login: "spammer" }
+      }),
+      client
+    );
+    expect(client.unbanUser).not.toHaveBeenCalled();
+    expect(await handleModerationEvent(event("timeout"), client)).toEqual({
+      action: "timeout",
+      handled: false
+    });
   });
 });

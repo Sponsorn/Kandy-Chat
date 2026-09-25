@@ -145,17 +145,17 @@ main channel (for example `kandyland`) is banned in the other channels too (for 
 - The mirrored ban carries a reason built from the template, default
   `Banned in {source} by {moderator}`. Tags: `{source}`, `{target}`, `{moderator}`, `{user}`,
   `{reason}`. For bans clicked in Discord or the dashboard, `{moderator}` is that user; for bans
-  done directly in Twitch chat the bot looks the moderator up with the Helix "Get Banned Users"
-  endpoint, which needs the `moderation:read` scope on the bot token (without it the reason falls
-  back to "a moderator").
+  done directly in Twitch chat it is the Twitch moderator reported by the EventSub
+  `channel.moderate` subscription (see below; without it the reason falls back to "a moderator").
 - "Mirror Unbans" lifts the mirrored bans again when the user is unbanned in the source channel.
   Unbans the bot performs itself (the Unban button on auto-ban cards) are mirrored at once. Twitch
-  IRC has no unban notice, so for unbans done in Twitch chat the bot remembers every ban it
-  mirrored (`data/ban-sync-state.json`) and checks those users against the Helix "Get Banned
-  Users" endpoint at the interval set in the dashboard ("Unban check interval", in hours,
-  default 1, 0 pauses it; the first check runs a minute after startup; needs `moderation:read`);
-  a user who is no longer banned in the source is unbanned in the targets. Bans that already
-  existed in a target before the sync are left alone.
+  IRC has no unban notice, so for unbans done in Twitch chat the bot subscribes to EventSub
+  `channel.moderate` for the source channel as its own moderator account and mirrors the unban as
+  soon as the notice arrives. This needs EventSub set up (`EVENTSUB_*`) and the moderator scopes
+  listed in `.env.example` on the bot token, which must come from `TWITCH_CLIENT_ID`. (Helix "Get
+  Banned Users" is not an option: it only works with the channel owner's own token.) Only bans the
+  sync placed are lifted (tracked in `data/ban-sync-state.json`); bans that already existed in a
+  target before the sync are left alone.
 - "Announce in Discord" posts a `[SYSTEM]` line in the relay channel of the source channel each
   time a ban is mirrored. Mirrored actions also appear in the dashboard Mod Log with source "Bot".
 

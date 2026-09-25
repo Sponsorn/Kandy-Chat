@@ -9,16 +9,18 @@ import { saveTrackedBans } from "../banSyncStore.js";
  * reaction or button, the dashboard, or an auto-ban rule). Bans in a target channel are never
  * mirrored anywhere, so the sync is strictly one-way.
  *
- * Twitch IRC has no unban notice, so unbans are handled two ways: immediately when the bot
- * itself unbans someone (the Unban button on auto-ban cards), and by polling. Every mirrored ban
- * is remembered in data/ban-sync-state.json; the poller asks Helix "Get Banned Users" for just
- * those users and, when one is no longer banned in the source channel, lifts the mirrored bans.
+ * Twitch IRC has no unban notice, so unbans come from the EventSub "channel.moderate"
+ * subscription (created for the source channel as the bot's moderator account, see
+ * eventSubManager.js) and, when the bot itself unbans someone (the Unban button on auto-ban
+ * cards), straight from that code path. The same subscription reports who issued a ban and why,
+ * which fills {moderator} and {reason} for bans done in Twitch chat.
+ *
+ * Every mirrored ban is remembered in data/ban-sync-state.json, and an unban only lifts the
+ * target bans the sync placed itself: a target that was already banned independently stays
+ * banned.
  */
 
 export const DEFAULT_BAN_REASON_TEMPLATE = "Banned in {source} by {moderator}";
-
-export const DEFAULT_UNBAN_POLL_HOURS = 1;
-export const MAX_UNBAN_POLL_HOURS = 168; // one week
 
 export const DEFAULT_BAN_SYNC_CONFIG = Object.freeze({
   enabled: false,
@@ -26,10 +28,7 @@ export const DEFAULT_BAN_SYNC_CONFIG = Object.freeze({
   targetChannels: [],
   mirrorUnbans: true,
   announceInDiscord: true,
-  reasonTemplate: DEFAULT_BAN_REASON_TEMPLATE,
-  // How often (hours, fractions allowed) to ask Helix whether tracked users are still banned in
-  // the source. 0 turns the check off; bot-performed unbans still mirror immediately.
-  unbanPollHours: DEFAULT_UNBAN_POLL_HOURS
+  reasonTemplate: DEFAULT_BAN_REASON_TEMPLATE
 });
 
 export const REASON_TEMPLATE_TAGS = ["source", "target", "moderator", "user", "reason"];
@@ -38,22 +37,34 @@ const BAN_SYNC_ACTOR = "BanSync";
 const UNKNOWN_MODERATOR = "a moderator";
 const MAX_REASON_LENGTH = 500; // Helix limit for ban reasons
 const ATTRIBUTION_TTL_MS = 60 * 1000;
+// How long a ban seen on IRC waits for the matching EventSub notice to say who issued it. The
+// two arrive within a second or so of each other, in either order.
+const DEFAULT_ATTRIBUTION_WAIT_MS = 3000;
+const ATTRIBUTION_WAIT_STEP_MS = 100;
+let attributionWaitMs = DEFAULT_ATTRIBUTION_WAIT_MS;
 
-// Bans the bot issued itself, keyed by "channel:login", so the mirrored ban can name the
-// Discord/dashboard moderator instead of the bot account Helix reports.
+/** Tests only: shorten or disable the wait for an EventSub attribution. */
+export function setAttributionWaitMs(ms) {
+  attributionWaitMs = Math.max(0, Number(ms) || 0);
+}
+
+// Who issued a ban, keyed by "channel:login": noted right before the bot issues a ban (so the
+// mirrored ban names the Discord/dashboard moderator instead of the bot account) and when an
+// EventSub channel.moderate ban notice arrives for a ban done elsewhere.
 const pendingAttributions = new Map();
 
 /**
- * Remember who asked the bot to ban `username` in `channel`. Call right before the bot issues a
- * ban so the ban sync can credit that moderator when the IRC ban notice arrives.
+ * Remember who banned `username` in `channel`. Call right before the bot issues a ban so the
+ * ban sync can credit that moderator when the IRC ban notice arrives.
  * @param {string} channel
  * @param {string} username
  * @param {string} moderator - Display name of the moderator (Discord/dashboard user or "AutoBan")
+ * @param {string} [reason] - Ban reason, when known
  */
-export function noteBanAttribution(channel, username, moderator) {
+export function noteBanAttribution(channel, username, moderator, reason = "") {
   const key = `${normalizeChannel(channel)}:${(username ?? "").toString().toLowerCase()}`;
   if (!moderator || key.endsWith(":")) return;
-  pendingAttributions.set(key, { moderator, timestamp: Date.now() });
+  pendingAttributions.set(key, { moderator, reason: reason || "", timestamp: Date.now() });
 
   // Opportunistic cleanup so the map never grows unbounded
   const cutoff = Date.now() - ATTRIBUTION_TTL_MS;
@@ -64,7 +75,7 @@ export function noteBanAttribution(channel, username, moderator) {
 
 /**
  * Take (and forget) a remembered attribution for a ban.
- * @returns {string|null} Moderator name, or null if the bot did not issue this ban recently
+ * @returns {{moderator: string, reason: string}|null} null when nothing recent is remembered
  */
 export function takeBanAttribution(channel, username) {
   const key = `${normalizeChannel(channel)}:${(username ?? "").toString().toLowerCase()}`;
@@ -72,12 +83,11 @@ export function takeBanAttribution(channel, username) {
   if (!entry) return null;
   pendingAttributions.delete(key);
   if (Date.now() - entry.timestamp > ATTRIBUTION_TTL_MS) return null;
-  return entry.moderator;
+  return { moderator: entry.moderator, reason: entry.reason || "" };
 }
 
 // Bans this sync mirrored, keyed by login: { userId, source, targets, mirroredAt }.
-// Only these users are polled for unbans, so the poll cost scales with mirrored bans, not with
-// the channel's whole ban list.
+// An unban in the source only lifts these targets.
 const trackedBans = new Map();
 const MAX_TRACKED_BANS = 5000;
 let persistQueue = Promise.resolve();
@@ -92,6 +102,7 @@ function persistTrackedBans() {
 
 /**
  * Load previously mirrored bans (from data/ban-sync-state.json) into memory.
+ * `userId` is kept for files written by older versions; nothing needs it any more.
  * @param {Array<{login: string, userId?: string|null, source: string, targets: string[], mirroredAt?: number}>} entries
  */
 export function hydrateTrackedBans(entries) {
@@ -241,16 +252,6 @@ export function validateBanSyncConfig(input, knownChannels) {
     }
   }
 
-  let unbanPollHours = DEFAULT_UNBAN_POLL_HOURS;
-  if (input.unbanPollHours !== undefined && input.unbanPollHours !== null) {
-    const n = Number(input.unbanPollHours);
-    if (!Number.isFinite(n) || n < 0 || n > MAX_UNBAN_POLL_HOURS) {
-      errors.push(`unbanPollHours must be a number between 0 and ${MAX_UNBAN_POLL_HOURS}`);
-    } else {
-      unbanPollHours = Math.round(n * 100) / 100;
-    }
-  }
-
   let sourceChannel = null;
   if (input.sourceChannel !== null && input.sourceChannel !== undefined) {
     if (typeof input.sourceChannel !== "string") {
@@ -306,8 +307,7 @@ export function validateBanSyncConfig(input, knownChannels) {
       targetChannels,
       mirrorUnbans,
       announceInDiscord,
-      reasonTemplate,
-      unbanPollHours
+      reasonTemplate
     },
     errors: []
   };
@@ -350,27 +350,18 @@ async function announce(sourceChannel, text) {
 
 /**
  * Work out who banned `login` in `source` and why. Bot-issued bans are credited to the
- * Discord/dashboard moderator that triggered them; everything else is looked up through Helix
- * (needs the moderation:read scope), and falls back to "a moderator".
+ * Discord/dashboard moderator that triggered them; bans done elsewhere are credited from the
+ * EventSub channel.moderate notice, which can arrive just after the IRC ban notice, so wait
+ * briefly for it before falling back to "a moderator".
  */
-async function resolveBanAttribution(source, login, twitchAPIClient) {
-  const remembered = takeBanAttribution(source, login);
-  if (remembered) return { moderator: remembered, reason: "" };
-
-  if (typeof twitchAPIClient.getBannedUser === "function") {
-    try {
-      const entry = await twitchAPIClient.getBannedUser(`#${source}`, login);
-      if (entry) {
-        return {
-          moderator: entry.moderatorName || entry.moderatorLogin || UNKNOWN_MODERATOR,
-          reason: entry.reason || ""
-        };
-      }
-    } catch (error) {
-      console.warn(`[BanSync] Could not look up who banned ${login} in #${source}:`, error.message);
-    }
+async function resolveBanAttribution(source, login) {
+  const deadline = Date.now() + attributionWaitMs;
+  for (;;) {
+    const remembered = takeBanAttribution(source, login);
+    if (remembered) return remembered;
+    if (Date.now() >= deadline) break;
+    await new Promise((resolve) => setTimeout(resolve, ATTRIBUTION_WAIT_STEP_MS));
   }
-
   return { moderator: UNKNOWN_MODERATOR, reason: "" };
 }
 
@@ -391,7 +382,7 @@ export async function mirrorBan(channel, username, twitchAPIClient) {
 
   const source = normalizeChannel(channel);
   const login = username.toLowerCase();
-  const attribution = await resolveBanAttribution(source, login, twitchAPIClient);
+  const attribution = await resolveBanAttribution(source, login);
   result.moderator = attribution.moderator;
 
   for (const target of targets) {
@@ -439,13 +430,7 @@ export async function mirrorBan(channel, username, twitchAPIClient) {
   // Remember what we banned so an unban in the source can be detected and mirrored later.
   // Targets that were already banned independently are not tracked: that ban was not ours.
   if (result.mirrored.length) {
-    let userId = null;
-    try {
-      userId = await twitchAPIClient.getUserId(login);
-    } catch {
-      // The poller will resolve the id later
-    }
-    await trackMirroredBan(login, userId, source, result.mirrored);
+    await trackMirroredBan(login, null, source, result.mirrored);
   }
 
   if (config.announceInDiscord && (result.mirrored.length || result.failed.length)) {
@@ -466,27 +451,35 @@ export async function mirrorBan(channel, username, twitchAPIClient) {
 }
 
 /**
- * Mirror an unban in `channel` to the configured target channels.
- * Only runs when `mirrorUnbans` is enabled.
+ * Mirror an unban in `channel` to the target channels the sync banned the user in.
+ * Only runs when `mirrorUnbans` is enabled. Targets where the user was banned independently of
+ * the sync are never tracked, so their bans stay.
  *
  * @param {string} channel - Channel the unban happened in (with or without #)
  * @param {string} username - Twitch login of the unbanned user
  * @param {Object} twitchAPIClient - TwitchAPIClient instance
  * @param {Object} [options]
- * @param {"bot"|"poll"} [options.detectedBy="bot"] - "bot" when the bot itself unbanned the user,
- *   "poll" when the Helix poller noticed the source ban is gone
+ * @param {string} [options.moderator] - Who lifted the source ban, when known
  * @returns {Promise<{ mirrored: string[], skipped: string[], failed: string[] }>}
  */
 export async function mirrorUnban(channel, username, twitchAPIClient, options = {}) {
   const result = { mirrored: [], skipped: [], failed: [] };
   const config = botState.getBanSyncConfig();
   if (!config.mirrorUnbans) return result;
-  const targets = planBanMirror(config, channel);
-  if (!targets.length || !username || !twitchAPIClient) return result;
+  const configured = planBanMirror(config, channel);
+  if (!configured.length || !username || !twitchAPIClient) return result;
 
   const source = normalizeChannel(channel);
   const login = username.toLowerCase();
-  const detectedBy = options.detectedBy === "poll" ? "poll" : "bot";
+  const tracked = trackedBans.get(login);
+  const targets =
+    tracked && tracked.source === source
+      ? configured.filter((t) => tracked.targets.includes(t))
+      : [];
+  if (!targets.length) {
+    console.log(`[BanSync] ${login} was unbanned in #${source}, no mirrored bans to lift`);
+    return result;
+  }
 
   for (const target of targets) {
     try {
@@ -521,8 +514,8 @@ export async function mirrorUnban(channel, username, twitchAPIClient, options = 
     }
   }
 
-  // Stop tracking targets that are unbanned (or were not banned any more); keep failed ones
-  // so the poller retries them next round.
+  // Stop tracking targets that are unbanned (or were not banned any more); keep failed ones so
+  // a later unban in the source (or the bot's Unban button) can retry them.
   await untrackMirroredBan(login, [...result.mirrored, ...result.skipped]);
 
   if (config.announceInDiscord && (result.mirrored.length || result.failed.length)) {
@@ -533,187 +526,56 @@ export async function mirrorUnban(channel, username, twitchAPIClient, options = 
     if (result.failed.length) {
       parts.push(`failed to unban in ${result.failed.map((t) => `#${t}`).join(", ")}`);
     }
-    const how = detectedBy === "poll" ? "is no longer banned" : "was unbanned";
-    await announce(source, `Ban sync: **${login}** ${how} in #${source}, ${parts.join("; ")}`);
+    const by = options.moderator ? ` by ${options.moderator}` : "";
+    await announce(
+      source,
+      `Ban sync: **${login}** was unbanned in #${source}${by}, ${parts.join("; ")}`
+    );
   }
 
   return result;
 }
 
 /**
- * One poll round: ask Helix which tracked users are still banned in the source channel and
- * mirror an unban for every one that no longer is. Users the sync banned in the targets but
- * whose source ban was lifted by a moderator in Twitch chat are caught here.
+ * Handle an EventSub channel.moderate notification (the `event` object of the payload).
+ * - "ban": remember who banned the user and why, for the mirrored ban's reason
+ * - "unban": lift the bans the sync mirrored
+ * Everything else is ignored. Actions the bot itself performed are skipped for attribution
+ * (the Discord/dashboard moderator was already noted) but unbans are still mirrored; a second
+ * mirror of the same unban finds nothing tracked and does nothing.
  *
+ * @param {Object} event - channel.moderate event
  * @param {Object} twitchAPIClient - TwitchAPIClient instance
- * @returns {Promise<{ checked: number, unbanned: string[], failed: string[] }>}
+ * @param {Object} [options]
+ * @param {string} [options.botLogin] - The bot's own Twitch login
+ * @returns {Promise<{ action: string, handled: boolean }>}
  */
-export async function checkTrackedUnbans(twitchAPIClient) {
-  const summary = { checked: 0, unbanned: [], failed: [] };
-  const config = botState.getBanSyncConfig();
-  if (!config.enabled || !config.mirrorUnbans || !twitchAPIClient) return summary;
+export async function handleModerationEvent(event, twitchAPIClient, options = {}) {
+  const action = event?.action || "";
+  const channel = normalizeChannel(event?.broadcaster_user_login);
+  // Shared chat: an action taken in another channel of the session is not a source ban
+  const origin = normalizeChannel(event?.source_broadcaster_user_login);
+  if (!channel || (origin && origin !== channel)) return { action, handled: false };
 
-  const source = normalizeChannel(config.sourceChannel);
-  if (!source) return summary;
+  const moderatorLogin = (event?.moderator_user_login || "").toLowerCase();
+  const moderator = event?.moderator_user_name || event?.moderator_user_login || "";
+  const isBot = !!options.botLogin && moderatorLogin === options.botLogin.toLowerCase();
 
-  const candidates = [...trackedBans.entries()].filter(([, entry]) => entry.source === source);
-  if (!candidates.length) return summary;
-
-  // Resolve ids for entries that were tracked without one
-  let changed = false;
-  for (const [login, entry] of candidates) {
-    if (entry.userId) continue;
-    try {
-      entry.userId = await twitchAPIClient.getUserId(login);
-      changed = true;
-    } catch (error) {
-      console.warn(`[BanSync] Could not resolve user id for ${login}:`, error.message);
-    }
-  }
-  if (changed) await persistTrackedBans();
-
-  const withIds = candidates.filter(([, entry]) => entry.userId);
-  if (!withIds.length) return summary;
-
-  let stillBanned;
-  try {
-    stillBanned = await twitchAPIClient.getBannedUsersByIds(
-      `#${source}`,
-      withIds.map(([, entry]) => entry.userId)
-    );
-  } catch (error) {
-    console.warn(`[BanSync] Unban check failed for #${source}:`, error.message);
-    return summary;
-  }
-  summary.checked = withIds.length;
-
-  for (const [login, entry] of withIds) {
-    if (stillBanned.has(entry.userId)) continue;
-    console.log(`[BanSync] ${login} is no longer banned in #${source}, lifting mirrored ban(s)`);
-    const result = await mirrorUnban(`#${source}`, login, twitchAPIClient, { detectedBy: "poll" });
-    if (result.mirrored.length || result.skipped.length) summary.unbanned.push(login);
-    if (result.failed.length) summary.failed.push(login);
+  if (action === "ban") {
+    const login = event?.ban?.user_login;
+    if (!login || isBot) return { action, handled: false };
+    noteBanAttribution(channel, login, moderator, event?.ban?.reason || "");
+    return { action, handled: true };
   }
 
-  return summary;
-}
-
-// First unban check after startup: long enough for the token and IRC to be ready, short enough
-// that frequent restarts cannot starve the check.
-const STARTUP_UNBAN_CHECK_DELAY_MS = 60 * 1000;
-
-/**
- * Periodically run checkTrackedUnbans(). The interval comes from the ban sync config
- * (`unbanPollHours`, editable in the dashboard) and is re-read after every run and whenever
- * the config changes, so no restart is needed. 0 pauses the check; the poller then just waits
- * for the setting to change. The first check runs a minute after start.
- *
- * @param {Object} options
- * @param {Object} options.twitchAPIClient
- * @param {{ log: Function, error: Function }} [options.logger]
- * @param {number} [options.startupDelayMs] - Delay before the first check after start()
- */
-export function createBanSyncPoller({
-  twitchAPIClient,
-  logger = console,
-  startupDelayMs = STARTUP_UNBAN_CHECK_DELAY_MS
-}) {
-  let timer = null;
-  let polling = false;
-  let running = false;
-  let lastAnnouncedHours = null;
-  // When the last check ran. null until the first one, which runs shortly after start so a
-  // restart (or a string of them) never pushes the check out indefinitely.
-  let lastPollAt = null;
-  let startedAt = 0;
-
-  function currentHours() {
-    const hours = botState.getBanSyncConfig().unbanPollHours;
-    return Number.isFinite(hours) && hours >= 0 ? hours : DEFAULT_UNBAN_POLL_HOURS;
+  if (action === "unban") {
+    const login = event?.unban?.user_login;
+    if (!login) return { action, handled: false };
+    await mirrorUnban(channel, login, twitchAPIClient, {
+      moderator: isBot ? undefined : moderator
+    });
+    return { action, handled: true };
   }
 
-  async function pollOnce() {
-    if (polling) return null;
-    polling = true;
-    try {
-      const summary = await checkTrackedUnbans(twitchAPIClient);
-      if (summary?.checked) {
-        logger.log(
-          `[BanSync] Unban check: ${summary.checked} tracked, ${summary.unbanned.length} lifted` +
-            (summary.failed.length ? `, ${summary.failed.length} failed` : "")
-        );
-      }
-      return summary;
-    } catch (error) {
-      logger.error(`[BanSync] Unban poll failed: ${error?.message || error}`);
-      return null;
-    } finally {
-      lastPollAt = Date.now();
-      polling = false;
-    }
-  }
-
-  // The next run is anchored to the last run (or to start), so re-scheduling on a config
-  // change only moves it when the interval itself changed, never back to a full interval.
-  function schedule() {
-    if (timer) clearTimeout(timer);
-    timer = null;
-    if (!running) return;
-
-    const hours = currentHours();
-    if (hours !== lastAnnouncedHours) {
-      logger.log(
-        hours > 0
-          ? `[BanSync] Unban check every ${hours}h`
-          : "[BanSync] Unban check paused (interval set to 0)"
-      );
-      lastAnnouncedHours = hours;
-    }
-    if (hours <= 0) return; // paused until the config changes
-
-    const dueAt =
-      lastPollAt === null
-        ? startedAt + startupDelayMs
-        : lastPollAt + Math.round(hours * 60 * 60 * 1000);
-    timer = setTimeout(
-      async () => {
-        timer = null;
-        await pollOnce();
-        schedule();
-      },
-      Math.max(0, dueAt - Date.now())
-    );
-    timer.unref?.();
-  }
-
-  function onConfigUpdate(data) {
-    if (data?.section === "banSync" || data?.config?.banSync) schedule();
-  }
-
-  function start() {
-    if (running) return;
-    running = true;
-    startedAt = Date.now();
-    botState.on("runtimeConfig:updated", onConfigUpdate);
-    schedule();
-  }
-
-  function stop() {
-    running = false;
-    botState.off("runtimeConfig:updated", onConfigUpdate);
-    if (timer) clearTimeout(timer);
-    timer = null;
-  }
-
-  return {
-    start,
-    stop,
-    pollOnce,
-    get running() {
-      return running;
-    },
-    get intervalHours() {
-      return currentHours();
-    }
-  };
+  return { action, handled: false };
 }

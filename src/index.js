@@ -22,7 +22,7 @@ import { startWebServer } from "./server/webServer.js";
 import { createStreamStatusPoller } from "./services/streamStatusPoller.js";
 import { loadTrackedBans } from "./banSyncStore.js";
 import { attachLogPersistence } from "./logStore.js";
-import { hydrateTrackedBans, createBanSyncPoller } from "./services/banSyncService.js";
+import { hydrateTrackedBans, handleModerationEvent } from "./services/banSyncService.js";
 import { ensureSubscriptions, readEventSubConfig } from "./services/eventSubManager.js";
 import { TwitchAPIClient } from "./api/TwitchAPIClient.js";
 import botState from "./state/BotState.js";
@@ -492,8 +492,23 @@ async function start() {
   // and whenever a revocation does get through.
   const eventSubConfig = readEventSubConfig(process.env);
   let eventSubReconcileRunning = false;
+  let eventSubReconcileAgain = null;
+
+  // Ban sync watches its source channel through channel.moderate (as the bot's moderator
+  // account) to see unbans and who issued each ban.
+  function moderationSubscriptions() {
+    const banSync = botState.getBanSyncConfig();
+    const channels = banSync.enabled && banSync.sourceChannel ? [banSync.sourceChannel] : [];
+    return { moderator: eventSubConfig.moderatorLogin, channels };
+  }
+
   async function reconcileEventSub(reason) {
-    if (!eventSubConfig.canManage || eventSubReconcileRunning) return;
+    if (!eventSubConfig.canManage) return;
+    if (eventSubReconcileRunning) {
+      // Run once more afterwards so a config change during a check is not lost
+      eventSubReconcileAgain = reason;
+      return;
+    }
     eventSubReconcileRunning = true;
     try {
       console.log(`EventSub: checking subscriptions (${reason})`);
@@ -503,6 +518,7 @@ async function start() {
         callbackUrl: eventSubConfig.callbackUrl,
         secret: eventSubConfig.secret,
         broadcasters: eventSubConfig.broadcasters,
+        moderation: moderationSubscriptions(),
         logger: console
       });
     } catch (error) {
@@ -510,13 +526,27 @@ async function start() {
     } finally {
       eventSubReconcileRunning = false;
     }
+    if (eventSubReconcileAgain) {
+      const again = eventSubReconcileAgain;
+      eventSubReconcileAgain = null;
+      await reconcileEventSub(again);
+    }
+  }
+
+  function handleEventSubNotification(payload) {
+    if (payload?.subscription?.type === "channel.moderate") {
+      return handleModerationEvent(payload.event, twitchAPIClient, {
+        botLogin: eventSubConfig.moderatorLogin
+      }).catch((error) => console.error("[BanSync] Failed to handle moderation event:", error));
+    }
+    return handleStreamEvent(payload, "eventsub");
   }
 
   const webServer = await startWebServer(process.env, {
     logger: console,
     twitchAPIClient,
     updateBlacklistFromEntries,
-    onEvent: (payload) => handleStreamEvent(payload, "eventsub"),
+    onEvent: handleEventSubNotification,
     onRevocation: () => {
       // Give Twitch a moment, then recreate whatever was revoked
       setTimeout(() => reconcileEventSub("revocation received"), 5000);
@@ -532,6 +562,10 @@ async function start() {
   if (webServer && eventSubConfig.canManage) {
     // Let the web server accept the verification challenge before creating subscriptions
     setTimeout(() => reconcileEventSub("startup"), 3000);
+    // Ban sync source changed or the sync was switched on/off: update channel.moderate
+    botState.on("runtimeConfig:updated", (data) => {
+      if (data?.section === "banSync") reconcileEventSub("ban sync settings changed");
+    });
     if (eventSubConfig.reconcileMinutes > 0) {
       const reconcileTimer = setInterval(
         () => reconcileEventSub("periodic check"),
@@ -658,10 +692,6 @@ async function start() {
     });
     streamStatusPoller.start();
   }
-
-  // Ban sync: poll Helix for tracked users so unbans in the source channel (which IRC never
-  // announces) get mirrored to the target channels too. Interval comes from the dashboard config.
-  createBanSyncPoller({ twitchAPIClient, logger: console }).start();
 
   // Schedule token refresh
   if (tokenInfo?.expiresIn) {

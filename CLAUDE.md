@@ -98,16 +98,16 @@ No build step — code runs directly via Node.js ESM modules.
 - Used when `MODERATION_USE_BUTTONS=true`
 
 #### [src/services/banSyncService.js](src/services/banSyncService.js)
-- One-way ban mirroring between joined channels, configured from the dashboard (Settings -> Ban Sync) and stored in `data/config.json` under `banSync` (`enabled`, `sourceChannel`, `targetChannels`, `mirrorUnbans`, `announceInDiscord`, `reasonTemplate`, `unbanPollHours`)
+- One-way ban mirroring between joined channels, configured from the dashboard (Settings -> Ban Sync) and stored in `data/config.json` under `banSync` (`enabled`, `sourceChannel`, `targetChannels`, `mirrorUnbans`, `announceInDiscord`, `reasonTemplate`)
 - Trigger is the tmi.js `ban` event (IRC CLEARCHAT without duration) in `twitchHandlers.js`, so bans from Twitch chat, Discord reactions/buttons, the dashboard and auto-ban all mirror; bans in a target channel never mirror back
 - `planBanMirror()` and `validateBanSyncConfig()` are the pure decision/validation functions (unit tested); `mirrorBan()` / `mirrorUnban()` call `TwitchAPIClient` and record Mod Log entries with moderator `BanSync`, source `auto`
-- Ban reason template tags: `{source}`, `{target}`, `{moderator}`, `{user}`, `{reason}`. `{moderator}` comes from `noteBanAttribution()` (called by every bot ban path right before `banUser()`), else from `TwitchAPIClient.getBannedUser()` (Helix Get Banned Users, needs `moderation:read`), else "a moderator"
-- Unbans: bot-performed ones (Unban button in `discordHandlers.js`) mirror immediately. IRC has no unban notice, so every mirrored ban is tracked in `data/ban-sync-state.json` (`banSyncStore.js`, hydrated at startup) and `createBanSyncPoller()` runs `checkTrackedUnbans()` every `unbanPollHours` from the same dashboard config (default 1 hour, fractions allowed, 0 pauses; re-read on every `runtimeConfig:updated` so no restart; the first check runs a minute after start and later checks are anchored to the previous run, so restarts and config saves never push the check back): `TwitchAPIClient.getBannedUsersByIds()` on the source channel, any tracked user missing from the result gets `mirrorUnban(..., { detectedBy: "poll" })`. Targets that were already banned independently are never tracked, so their bans are not lifted
+- Ban reason template tags: `{source}`, `{target}`, `{moderator}`, `{user}`, `{reason}`. `{moderator}` comes from `noteBanAttribution()` (called by every bot ban path right before `banUser()`), else from the EventSub `channel.moderate` ban notice (`handleModerationEvent()` notes it; `mirrorBan()` waits up to 3s for it since it can arrive after the IRC notice), else "a moderator". Helix Get Banned Users is not used: it only accepts the channel owner's own token
+- Unbans: bot-performed ones (Unban button in `discordHandlers.js`) mirror immediately. IRC has no unban notice, so `src/index.js` keeps an EventSub `channel.moderate` v2 subscription for the source channel with the bot (`TWITCH_USERNAME`) as moderator (via `ensureSubscriptions({ moderation })`, re-reconciled when the ban sync config changes) and routes its notifications to `handleModerationEvent()`, which calls `mirrorUnban()`. Every mirrored ban is tracked in `data/ban-sync-state.json` (`banSyncStore.js`, hydrated at startup) and `mirrorUnban()` only lifts tracked targets, so targets that were already banned independently stay banned
 - Routes: `GET/PUT /api/ban-sync` in `configRoutes.js`; runtime copy in `BotState.getBanSyncConfig()` / `setBanSyncConfig()`
 
 #### [src/services/eventSubManager.js](src/services/eventSubManager.js)
 - Lists, creates and deletes EventSub webhook subscriptions with an app access token
-- `ensureSubscriptions()` reconciles registered subscriptions with the required set (stream.online, stream.offline, channel.raid per `EVENTSUB_BROADCASTER`): removes revoked/duplicate ones, creates missing ones
+- `ensureSubscriptions()` reconciles registered subscriptions with the required set (stream.online, stream.offline, channel.raid per `EVENTSUB_BROADCASTER`, plus channel.moderate v2 for the ban sync source channel as the bot's moderator account): removes revoked/duplicate ones and channel.moderate ones no longer needed, creates missing ones. A refused channel.moderate create (missing scopes) is logged and does not block the others
 - `planReconciliation()` is the pure decision function (unit tested)
 - Called by `src/index.js` at startup, every `EVENTSUB_RECONCILE_MINUTES`, and when a revocation webhook arrives; also backs `deploy-eventsub.js` (`--list`, `--dry-run`)
 
@@ -244,7 +244,7 @@ Critical dependencies between env vars:
 - `data/emoji-unmapped.json`: Shortcodes seen in YouTube chat with no mapping, with count, last seen and a sample message (written by youtube-relay, read by the dashboard's Emoji Mappings page via `GET /api/emoji-mappings/unmapped`; entries disappear once mapped)
 - `data/bot-log.json`, `data/audit-log.json`, `data/mod-log.json`: The dashboard's Bot Log, Audit Log and Mod Log (last 500 entries each), written by `logStore.js` with debounced atomic writes (mode 0600) and flushed on exit/SIGTERM/SIGINT; hydrated into `BotState` at startup so the dashboard log pages survive restarts
 - `data/sessions.json`: Dashboard sessions (user profile, roles, permission level; no tokens), written by `sessionManager.js`
-- `data/ban-sync-state.json`: Bans the ban sync mirrored (login, user id, source, targets), polled for unbans; written by `banSyncStore.js`
+- `data/ban-sync-state.json`: Bans the ban sync mirrored (login, source, targets), so an unban only lifts those; written by `banSyncStore.js`
 - `data/stream-status.json`: Per-channel live status (written by main bot on EventSub events, at startup, and by the Helix status poller; read by youtube-relay)
 
 ## Common Patterns
@@ -283,7 +283,7 @@ Usage: call methods like `twitchAPIClient.deleteMessage()`, `twitchAPIClient.ban
   - `tests/eventSubManager.test.js`: `planReconciliation()`, `readEventSubConfig()`, `ensureSubscriptions()` with a mocked fetch
   - `tests/streamStatusPoller.test.js`: confirmation counting, per-channel handling, timer start/stop
   - `tests/logStore.test.js`: `loadPersistedLogs()`, `attachLogPersistence()` hydration/merge order, debounced writes, `flushLogs()`, corrupt file handling
-  - `tests/banSyncService.test.js`: `planBanMirror()`, `validateBanSyncConfig()`, `renderBanReason()`, attribution, `mirrorBan()` / `mirrorUnban()` with a mocked API client
+  - `tests/banSyncService.test.js`: `planBanMirror()`, `validateBanSyncConfig()`, `renderBanReason()`, attribution, `mirrorBan()` / `mirrorUnban()` / `handleModerationEvent()` with a mocked API client
 
 ## YouTube Relay (`youtube-relay/`)
 

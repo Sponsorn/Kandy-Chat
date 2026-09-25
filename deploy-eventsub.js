@@ -5,6 +5,7 @@ import {
   listSubscriptions,
   readEventSubConfig
 } from "./src/services/eventSubManager.js";
+import { loadConfig } from "./src/configStore.js";
 
 /**
  * Manage EventSub webhook subscriptions.
@@ -38,7 +39,7 @@ async function list() {
   for (const sub of subscriptions) {
     const callback = sub.transport?.callback || "(no callback)";
     const marker = callback === config.callbackUrl ? "" : "  <- different callback";
-    console.log(`${sub.status.padEnd(32)} ${sub.type.padEnd(16)} ${JSON.stringify(sub.condition)}`);
+    console.log(`${sub.status.padEnd(32)} ${sub.type.padEnd(17)} ${JSON.stringify(sub.condition)}`);
     console.log(`${"".padEnd(32)} id=${sub.id}`);
     console.log(`${"".padEnd(32)} ${callback}${marker}`);
   }
@@ -50,12 +51,21 @@ async function main() {
     return;
   }
 
+  // Same channel.moderate set the bot keeps (ban sync source channel), so running this script
+  // does not remove what the bot created
+  const banSync = (await loadConfig())?.banSync || {};
+  const moderation = {
+    moderator: config.moderatorLogin,
+    channels: banSync.enabled && banSync.sourceChannel ? [banSync.sourceChannel] : []
+  };
+
   const summary = await ensureSubscriptions({
     clientId: config.clientId,
     clientSecret: config.clientSecret,
     callbackUrl: config.callbackUrl,
     secret: config.secret,
     broadcasters: config.broadcasters,
+    moderation,
     dryRun: args.has("--dry-run"),
     logger: console
   });

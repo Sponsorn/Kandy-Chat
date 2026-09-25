@@ -560,8 +560,8 @@ function BanSyncSection() {
                 />
                 <p style="color: var(--text-muted); font-size: 0.8rem; margin: -0.5rem 0 0.5rem 0;">
                   {moderator} is the Discord or dashboard user who clicked ban, or the Twitch
-                  moderator name looked up via Helix (needs the moderation:read scope on the bot
-                  token). {reason} is the original ban reason when Twitch reports one.
+                  moderator who banned in chat (reported by the EventSub channel.moderate
+                  subscription). {reason} is the original ban reason when Twitch reports one.
                 </p>
               </div>
             `
@@ -570,33 +570,11 @@ function BanSyncSection() {
 
       <${ToggleSwitch}
         label="Mirror Unbans"
-        description="When a mirrored user is unbanned in the source channel, unban them in the targets too. Bot unbans are mirrored at once; unbans done in Twitch chat are picked up by the periodic Helix check below (needs the moderation:read scope)."
+        description="When a mirrored user is unbanned in the source channel, unban them in the targets too. Only bans the sync placed are lifted. Unbans done in Twitch chat arrive through the EventSub channel.moderate subscription (needs EventSub set up and the moderator scopes listed in .env.example on the bot token)."
         checked=${edited.mirrorUnbans}
         onChange=${(v) => update({ mirrorUnbans: v })}
         disabled=${!isAdmin}
       />
-      <div
-        style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid var(--border-color); gap: 1rem;"
-      >
-        <div>
-          <span>Unban check interval</span>
-          <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0.25rem 0 0 0;">
-            Hours between Helix checks for unbans of mirrored users (0.5 = every 30 minutes, 0
-            pauses the check).
-          </p>
-        </div>
-        <input
-          type="number"
-          min="0"
-          max="168"
-          step="0.5"
-          value=${edited.unbanPollHours ?? 1}
-          onInput=${(e) => update({ unbanPollHours: Number(e.target.value) })}
-          disabled=${!isAdmin || !edited.mirrorUnbans}
-          class="form-input"
-          style="width: 100px; text-align: right;"
-        />
-      </div>
       <${ToggleSwitch}
         label="Announce in Discord"
         description="Post a [SYSTEM] note in the relay channel when a ban is mirrored"

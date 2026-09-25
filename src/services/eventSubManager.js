@@ -24,6 +24,21 @@ export const REQUIRED_SUBSCRIPTIONS = [
 ];
 
 /**
+ * Moderation events, subscribed per moderated channel as the bot's own (moderator) account.
+ * The bot's user token must have been authorized for this client id with the moderator scopes
+ * Twitch requires for channel.moderate (see .env.example). Used by ban sync to see unbans,
+ * which IRC never announces, and who issued a ban.
+ */
+export const MODERATION_SUBSCRIPTION = { type: "channel.moderate", version: "2" };
+
+/**
+ * Subscription types whose instances this bot fully manages: an enabled one on our callback
+ * that is no longer required (e.g. ban sync moved to another source channel) is removed
+ * instead of kept as an extra.
+ */
+const MANAGED_TYPES = new Set([MODERATION_SUBSCRIPTION.type]);
+
+/**
  * Build the callback URL from the public URL and callback path.
  */
 export function buildCallbackUrl(publicUrl, callbackPath) {
@@ -161,9 +176,12 @@ export async function deleteSubscription(clientId, accessToken, id, fetchImpl = 
 
 /**
  * Compute the set of subscriptions the bot needs.
- * @param {Map<string, string>} userIds login -> id
+ * @param {Map<string, string>} userIds login -> id, for the stream subscriptions
+ * @param {Object} [moderation]
+ * @param {string} [moderation.moderatorId] - The bot's user id
+ * @param {Map<string, string>} [moderation.channelIds] - login -> id of channels to watch
  */
-export function buildRequiredSubscriptions(userIds) {
+export function buildRequiredSubscriptions(userIds, moderation = null) {
   const required = [];
   for (const [login, userId] of userIds) {
     for (const spec of REQUIRED_SUBSCRIPTIONS) {
@@ -172,6 +190,16 @@ export function buildRequiredSubscriptions(userIds) {
         type: spec.type,
         version: spec.version,
         condition: { [spec.conditionKey]: userId }
+      });
+    }
+  }
+  if (moderation?.moderatorId) {
+    for (const [login, userId] of moderation.channelIds || []) {
+      required.push({
+        login,
+        type: MODERATION_SUBSCRIPTION.type,
+        version: MODERATION_SUBSCRIPTION.version,
+        condition: { broadcaster_user_id: userId, moderator_user_id: moderation.moderatorId }
       });
     }
   }
@@ -230,6 +258,10 @@ export function planReconciliation(existing, required, callbackUrl) {
   const extra = [];
   for (const sub of usable) {
     if (!keep.includes(sub) && !remove.includes(sub)) {
+      if (MANAGED_TYPES.has(sub.type)) {
+        remove.push(sub);
+        continue;
+      }
       keep.push(sub);
       extra.push(sub);
     }
@@ -247,6 +279,9 @@ export function planReconciliation(existing, required, callbackUrl) {
  * @param {string} options.callbackUrl
  * @param {string} options.secret - webhook secret
  * @param {string[]} options.broadcasters - Twitch logins
+ * @param {Object} [options.moderation] - channel.moderate subscriptions to keep
+ * @param {string} options.moderation.moderator - The bot's Twitch login
+ * @param {string[]} options.moderation.channels - Channels the bot moderates to watch
  * @param {{ log: Function, warn?: Function, error: Function }} [options.logger]
  * @param {boolean} [options.dryRun=false] - only report, do not change anything
  * @param {Function} [options.fetchImpl]
@@ -258,20 +293,37 @@ export async function ensureSubscriptions({
   callbackUrl,
   secret,
   broadcasters,
+  moderation = null,
   logger = console,
   dryRun = false,
   fetchImpl = fetchWithTimeout
 }) {
   const accessToken = await getAppAccessToken(clientId, clientSecret, fetchImpl);
 
-  const userIds = await resolveUserIds(clientId, accessToken, broadcasters, fetchImpl);
-  for (const login of broadcasters) {
-    if (!userIds.has(login.trim().toLowerCase())) {
-      logger?.warn?.(`EventSub: unable to resolve broadcaster id for ${login}, skipping`);
+  const moderator = (moderation?.moderator || "").trim().toLowerCase();
+  const moderatedChannels = moderator
+    ? (moderation.channels || []).map((c) => c.trim().toLowerCase()).filter(Boolean)
+    : [];
+  const allLogins = [...broadcasters, ...moderatedChannels, ...(moderator ? [moderator] : [])];
+  const ids = await resolveUserIds(clientId, accessToken, allLogins, fetchImpl);
+  for (const login of new Set(allLogins.map((l) => l.trim().toLowerCase()))) {
+    if (!ids.has(login)) {
+      logger?.warn?.(`EventSub: unable to resolve user id for ${login}, skipping`);
     }
   }
 
-  const required = buildRequiredSubscriptions(userIds);
+  const pick = (logins) => {
+    const map = new Map();
+    for (const login of logins) {
+      const key = login.trim().toLowerCase();
+      if (ids.has(key)) map.set(key, ids.get(key));
+    }
+    return map;
+  };
+  const required = buildRequiredSubscriptions(pick(broadcasters), {
+    moderatorId: ids.get(moderator) || null,
+    channelIds: pick(moderatedChannels)
+  });
   const existing = await listSubscriptions(clientId, accessToken, fetchImpl);
   const plan = planReconciliation(existing, required, callbackUrl);
 
@@ -296,9 +348,11 @@ export async function ensureSubscriptions({
     );
   }
 
+  let failed = 0;
   for (const want of plan.create) {
     logger?.log(`EventSub: creating ${want.type} for ${want.login}`);
-    if (!dryRun) {
+    if (dryRun) continue;
+    try {
       await createSubscription(
         clientId,
         accessToken,
@@ -311,11 +365,20 @@ export async function ensureSubscriptions({
         },
         fetchImpl
       );
+    } catch (error) {
+      // A moderation subscription the bot token is not authorized for must not stop the
+      // stream subscriptions from being created
+      if (want.type !== MODERATION_SUBSCRIPTION.type) throw error;
+      failed++;
+      logger?.error?.(
+        `EventSub: could not create ${want.type} for ${want.login}: ${error.message}. The bot account must be a moderator there, and its token must come from this client id with the channel.moderate scopes (see .env.example).`
+      );
     }
   }
 
   const summary = {
-    created: plan.create.length,
+    created: plan.create.length - failed,
+    failed,
     removed: plan.remove.length,
     kept: plan.keep.length,
     plan
@@ -325,7 +388,8 @@ export async function ensureSubscriptions({
     logger?.log(`EventSub: all ${plan.keep.length} subscriptions healthy`);
   } else {
     logger?.log(
-      `EventSub: ${dryRun ? "would have " : ""}created ${summary.created}, removed ${summary.removed}, kept ${summary.kept}`
+      `EventSub: ${dryRun ? "would have " : ""}created ${summary.created}, removed ${summary.removed}, kept ${summary.kept}` +
+        (failed ? `, failed ${failed}` : "")
     );
   }
 
@@ -349,6 +413,10 @@ export function readEventSubConfig(env) {
     secret: env.EVENTSUB_SECRET,
     callbackUrl: buildCallbackUrl(env.EVENTSUB_PUBLIC_URL, env.EVENTSUB_CALLBACK_PATH),
     broadcasters,
+    // The bot's own login: the moderator the channel.moderate subscriptions are created for
+    moderatorLogin: String(env.TWITCH_USERNAME || "")
+      .trim()
+      .toLowerCase(),
     reconcileMinutes: Number.parseInt(env.EVENTSUB_RECONCILE_MINUTES, 10)
   };
   if (!Number.isFinite(config.reconcileMinutes)) config.reconcileMinutes = 60;

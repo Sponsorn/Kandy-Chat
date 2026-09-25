@@ -54,6 +54,32 @@ describe("buildRequiredSubscriptions", () => {
   });
 });
 
+describe("buildRequiredSubscriptions with moderation", () => {
+  it("adds a channel.moderate v2 subscription per moderated channel, as the bot", () => {
+    const required = buildRequiredSubscriptions(new Map(), {
+      moderatorId: "999",
+      channelIds: new Map([["kandyland", "123"]])
+    });
+    expect(required).toEqual([
+      {
+        login: "kandyland",
+        type: "channel.moderate",
+        version: "2",
+        condition: { broadcaster_user_id: "123", moderator_user_id: "999" }
+      }
+    ]);
+  });
+
+  it("adds none without the bot's id", () => {
+    expect(
+      buildRequiredSubscriptions(new Map(), {
+        moderatorId: null,
+        channelIds: new Map([["kandyland", "123"]])
+      })
+    ).toEqual([]);
+  });
+});
+
 describe("planReconciliation", () => {
   const required = buildRequiredSubscriptions(new Map([["kandyland", "123"]]));
 
@@ -130,6 +156,17 @@ describe("planReconciliation", () => {
     expect(plan.keep).toContain(other);
     expect(plan.extra).toEqual([other]);
     expect(plan.create).toHaveLength(3);
+  });
+
+  it("removes a channel.moderate subscription that is no longer required", () => {
+    const stale = sub({
+      id: "old-mod",
+      type: "channel.moderate",
+      condition: { broadcaster_user_id: "555", moderator_user_id: "999" }
+    });
+    const plan = planReconciliation([stale], [], CALLBACK);
+    expect(plan.remove).toEqual([stale]);
+    expect(plan.extra).toEqual([]);
   });
 
   it("leaves enabled subscriptions for a different callback alone", () => {
@@ -289,5 +326,53 @@ describe("ensureSubscriptions", () => {
         ([, o]) => o?.method === "POST" && !String(o.body).includes("client_credentials")
       )
     ).toBe(false);
+  });
+
+  it("creates channel.moderate for the ban sync source and survives a refused one", async () => {
+    const creates = [];
+    const errors = [];
+    const fetchImpl = vi.fn(async (url, options = {}) => {
+      const method = options.method || "GET";
+      if (url.startsWith("https://id.twitch.tv/oauth2/token")) {
+        return jsonResponse({ access_token: "app-token" });
+      }
+      if (url.startsWith("https://api.twitch.tv/helix/users")) {
+        return jsonResponse({
+          data: [
+            { id: "123", login: "kandyland" },
+            { id: "999", login: "kandybot" }
+          ]
+        });
+      }
+      if (method === "GET") return jsonResponse({ data: [], pagination: {} });
+      if (method === "POST") {
+        const body = JSON.parse(options.body);
+        creates.push(body);
+        if (body.type === "channel.moderate") {
+          return jsonResponse({ message: "subscription missing proper authorization" }, 403);
+        }
+        return jsonResponse({ data: [{ id: "new" }] }, 202);
+      }
+      throw new Error(`unexpected ${method} ${url}`);
+    });
+
+    const summary = await ensureSubscriptions({
+      clientId: "id",
+      clientSecret: "secret",
+      callbackUrl: CALLBACK,
+      secret: "hook",
+      broadcasters: ["kandyland"],
+      moderation: { moderator: "KandyBot", channels: ["kandyland"] },
+      logger: { log: () => {}, warn: () => {}, error: (m) => errors.push(m) },
+      fetchImpl
+    });
+
+    const moderate = creates.find((c) => c.type === "channel.moderate");
+    expect(moderate).toMatchObject({
+      version: "2",
+      condition: { broadcaster_user_id: "123", moderator_user_id: "999" }
+    });
+    expect(summary).toMatchObject({ created: 3, failed: 1 });
+    expect(errors.join(" ")).toMatch(/channel\.moderate/);
   });
 });
