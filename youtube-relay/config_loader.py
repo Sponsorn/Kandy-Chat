@@ -59,4 +59,5 @@ def load_config():
         "blocked_terms_refresh_minutes": int(
             os.environ.get("BLOCKED_TERMS_REFRESH_MINUTES", "30")
         ),
+        "filter_cyrillic": _parse_bool(os.environ.get("FILTER_CYRILLIC", "true")),
     }

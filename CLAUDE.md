@@ -294,13 +294,14 @@ A self-contained Python service that reads YouTube live chat and relays messages
 - `youtube-relay/youtube_reader.py`: YouTube chat reader using yt-dlp for stream discovery and YouTube innertube API for real-time chat polling (no API key required). Transient poll errors retry the same continuation token (up to 5 times) before rediscovering; rediscovery reattaches to the last video id before calling yt-dlp; "no live stream" waits a flat 30s; each `start()` gets its own stop event and generation number so a restart never leaves two threads feeding the queue; message ids are remembered to drop replays
 - `youtube-relay/twitch_bot.py`: HTTP-only Twitch API client — sends messages via Helix API, reads shared `data/tokens.json` for auth, loads blacklist from `data/blacklist.json` with regex support
 - `youtube-relay/emoji_converter.py`: Converts YouTube emoji shortcodes (`:heart:`, `:smile:`) to text using mappings from `data/emoji-mappings.json`, reloads every 5 min. Records unmapped shortcodes to `data/emoji-unmapped.json` (throttled atomic writes, max 500 entries) so the dashboard can list them. `collapse_emojis()` treats both `:shortcodes:` and Unicode emojis (flags, ZWJ and skin-tone sequences) as single tokens, so spam like 22 flags becomes `🇧🇷 x22`; the reader emits the Unicode emoji itself when YouTube offers no ASCII shortcode (see `_render_emoji_run()` in `youtube_reader.py`)
+- `youtube-relay/text_filters.py`: `filter_cyrillic()` skips messages whose letters are mostly Cyrillic and strips stray Cyrillic letters (often look-alikes) from the rest; applied first in the relay loop, logged as `[SKIPPED]`, toggled by `FILTER_CYRILLIC` (default true)
 - `youtube-relay/config_loader.py`: Loads config from `.env` file (auth tokens optional — reads from shared `data/tokens.json`)
 - `youtube-relay/run.py`: Entry point
 
 ### How It Works
 1. `YouTubeChatReader` uses yt-dlp to find the live stream, then polls YouTube's innertube API for chat messages in a daemon thread
 2. Main loop consumes from the queue with `queue.get(timeout=1)`
-3. Messages pass through emoji conversion, spam protection (3 msgs/30s per user, duplicate filter), and blacklist checking
+3. Messages pass through the Cyrillic filter, emoji conversion, spam protection (3 msgs/30s per user, duplicate filter), and blacklist checking
 4. Messages are formatted (`[YT] author: message`) and sent to Twitch via Helix API
 5. Blacklist is loaded from shared `data/blacklist.json` (same file as main bot), reloads only when file changes
 6. Relay watches `data/stream-status.json` (written by main bot on EventSub events) to detect stream online/offline — stops YouTube reader when offline, restarts when live again

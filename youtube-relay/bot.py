@@ -8,6 +8,8 @@ import requests
 from collections import defaultdict
 from datetime import datetime, timezone
 
+from text_filters import filter_cyrillic
+
 
 def log(msg=""):
     """Print with timestamp and immediate flush for Docker log visibility."""
@@ -48,6 +50,7 @@ class YouTubeToTwitchBot:
         self.auto_restart = config.get("auto_restart", True)
         self.restart_delay = config.get("restart_delay", 30)
         self.blocked_terms_refresh_minutes = config.get("blocked_terms_refresh_minutes", 30)
+        self.filter_cyrillic = config.get("filter_cyrillic", True)
         self.running = False
 
         from emoji_converter import EmojiConverter
@@ -268,6 +271,14 @@ class YouTubeToTwitchBot:
 
                     author = msg["author"]
                     message_text = msg["message"]
+
+                    # Twitch chat is Latin script: skip mostly-Cyrillic messages and strip
+                    # stray Cyrillic letters (often look-alikes) from the rest
+                    if self.filter_cyrillic:
+                        message_text, skip_reason = filter_cyrillic(message_text)
+                        if message_text is None:
+                            log(f"[SKIPPED] {author}: {msg['message']} ({skip_reason})")
+                            continue
 
                     # Normalize ALL CAPS to sentence case
                     if message_text:
