@@ -598,21 +598,34 @@ export async function checkTrackedUnbans(twitchAPIClient) {
   return summary;
 }
 
+// First unban check after startup: long enough for the token and IRC to be ready, short enough
+// that frequent restarts cannot starve the check.
+const STARTUP_UNBAN_CHECK_DELAY_MS = 60 * 1000;
+
 /**
  * Periodically run checkTrackedUnbans(). The interval comes from the ban sync config
  * (`unbanPollHours`, editable in the dashboard) and is re-read after every run and whenever
  * the config changes, so no restart is needed. 0 pauses the check; the poller then just waits
- * for the setting to change.
+ * for the setting to change. The first check runs a minute after start.
  *
  * @param {Object} options
  * @param {Object} options.twitchAPIClient
  * @param {{ log: Function, error: Function }} [options.logger]
+ * @param {number} [options.startupDelayMs] - Delay before the first check after start()
  */
-export function createBanSyncPoller({ twitchAPIClient, logger = console }) {
+export function createBanSyncPoller({
+  twitchAPIClient,
+  logger = console,
+  startupDelayMs = STARTUP_UNBAN_CHECK_DELAY_MS
+}) {
   let timer = null;
   let polling = false;
   let running = false;
   let lastAnnouncedHours = null;
+  // When the last check ran. null until the first one, which runs shortly after start so a
+  // restart (or a string of them) never pushes the check out indefinitely.
+  let lastPollAt = null;
+  let startedAt = 0;
 
   function currentHours() {
     const hours = botState.getBanSyncConfig().unbanPollHours;
@@ -623,15 +636,25 @@ export function createBanSyncPoller({ twitchAPIClient, logger = console }) {
     if (polling) return null;
     polling = true;
     try {
-      return await checkTrackedUnbans(twitchAPIClient);
+      const summary = await checkTrackedUnbans(twitchAPIClient);
+      if (summary?.checked) {
+        logger.log(
+          `[BanSync] Unban check: ${summary.checked} tracked, ${summary.unbanned.length} lifted` +
+            (summary.failed.length ? `, ${summary.failed.length} failed` : "")
+        );
+      }
+      return summary;
     } catch (error) {
       logger.error(`[BanSync] Unban poll failed: ${error?.message || error}`);
       return null;
     } finally {
+      lastPollAt = Date.now();
       polling = false;
     }
   }
 
+  // The next run is anchored to the last run (or to start), so re-scheduling on a config
+  // change only moves it when the interval itself changed, never back to a full interval.
   function schedule() {
     if (timer) clearTimeout(timer);
     timer = null;
@@ -648,13 +671,17 @@ export function createBanSyncPoller({ twitchAPIClient, logger = console }) {
     }
     if (hours <= 0) return; // paused until the config changes
 
+    const dueAt =
+      lastPollAt === null
+        ? startedAt + startupDelayMs
+        : lastPollAt + Math.round(hours * 60 * 60 * 1000);
     timer = setTimeout(
       async () => {
         timer = null;
         await pollOnce();
         schedule();
       },
-      Math.round(hours * 60 * 60 * 1000)
+      Math.max(0, dueAt - Date.now())
     );
     timer.unref?.();
   }
@@ -666,6 +693,7 @@ export function createBanSyncPoller({ twitchAPIClient, logger = console }) {
   function start() {
     if (running) return;
     running = true;
+    startedAt = Date.now();
     botState.on("runtimeConfig:updated", onConfigUpdate);
     schedule();
   }

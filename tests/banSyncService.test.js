@@ -554,25 +554,60 @@ describe("createBanSyncPoller", () => {
     ]);
   }
 
-  it("uses the interval from the dashboard config and stops cleanly", async () => {
+  it("checks shortly after start, then on the dashboard interval, and stops cleanly", async () => {
     vi.useFakeTimers();
     arm(2);
-    const client = makeClient();
+    const client = makeClient({ stillBannedIds: ["id-gone"] });
     const poller = createBanSyncPoller({ twitchAPIClient: client, logger: silent });
 
     poller.start();
     expect(poller.running).toBe(true);
     expect(poller.intervalHours).toBe(2);
-    await vi.advanceTimersByTimeAsync(2 * HOUR - 1);
+    await vi.advanceTimersByTimeAsync(60 * 1000 - 1);
     expect(client.getBannedUsersByIds).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(1);
-    expect(client.unbanUser).toHaveBeenCalledWith("#kandylandvods", "gone");
+
+    await vi.advanceTimersByTimeAsync(2 * HOUR - 1);
+    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(2);
 
     poller.stop();
     expect(poller.running).toBe(false);
     await vi.advanceTimersByTimeAsync(24 * HOUR);
+    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it("lifts a mirrored ban on the first check after a restart", async () => {
+    vi.useFakeTimers();
+    arm(1);
+    const client = makeClient();
+    const poller = createBanSyncPoller({ twitchAPIClient: client, logger: silent });
+    poller.start();
+    await vi.advanceTimersByTimeAsync(60 * 1000);
+    expect(client.unbanUser).toHaveBeenCalledWith("#kandylandvods", "gone");
+    poller.stop();
+    vi.useRealTimers();
+  });
+
+  it("does not push the next check back when unrelated config is saved", async () => {
+    vi.useFakeTimers();
+    arm(1);
+    const client = makeClient({ stillBannedIds: ["id-gone"] });
+    const poller = createBanSyncPoller({ twitchAPIClient: client, logger: silent });
+    poller.start();
+    await vi.advanceTimersByTimeAsync(60 * 1000);
     expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(1);
+
+    // Saving sub messages re-emits the whole runtime config every 45 minutes
+    for (let i = 0; i < 4; i++) {
+      await vi.advanceTimersByTimeAsync(0.75 * HOUR);
+      botState.setRuntimeConfig({ subscriptionMessages: {} });
+    }
+    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(4);
+    poller.stop();
     vi.useRealTimers();
   });
 
@@ -582,21 +617,23 @@ describe("createBanSyncPoller", () => {
     const client = makeClient({ stillBannedIds: ["id-gone"] });
     const poller = createBanSyncPoller({ twitchAPIClient: client, logger: silent });
     poller.start();
+    await vi.advanceTimersByTimeAsync(60 * 1000);
+    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(1);
 
     // Dashboard saves a new interval: the poller re-arms with it
     botState.setBanSyncConfig({ ...botState.runtimeConfig.banSync, unbanPollHours: 0.5 });
     await vi.advanceTimersByTimeAsync(0.5 * HOUR);
-    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(1);
+    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(2);
 
     // 0 pauses the check entirely
     botState.setBanSyncConfig({ ...botState.runtimeConfig.banSync, unbanPollHours: 0 });
     await vi.advanceTimersByTimeAsync(48 * HOUR);
-    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(1);
-
-    // and a non-zero value resumes it
-    botState.setBanSyncConfig({ ...botState.runtimeConfig.banSync, unbanPollHours: 0.5 });
-    await vi.advanceTimersByTimeAsync(0.5 * HOUR);
     expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(2);
+
+    // and a non-zero value resumes it (overdue, so right away)
+    botState.setBanSyncConfig({ ...botState.runtimeConfig.banSync, unbanPollHours: 0.5 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(client.getBannedUsersByIds).toHaveBeenCalledTimes(3);
 
     poller.stop();
     vi.useRealTimers();

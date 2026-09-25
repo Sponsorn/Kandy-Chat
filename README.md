@@ -153,7 +153,7 @@ main channel (for example `kandyland`) is banned in the other channels too (for 
   IRC has no unban notice, so for unbans done in Twitch chat the bot remembers every ban it
   mirrored (`data/ban-sync-state.json`) and checks those users against the Helix "Get Banned
   Users" endpoint at the interval set in the dashboard ("Unban check interval", in hours,
-  default 1, 0 pauses it; needs `moderation:read`);
+  default 1, 0 pauses it; the first check runs a minute after startup; needs `moderation:read`);
   a user who is no longer banned in the source is unbanned in the targets. Bans that already
   existed in a target before the sync are left alone.
 - "Announce in Discord" posts a `[SYSTEM]` line in the relay channel of the source channel each
