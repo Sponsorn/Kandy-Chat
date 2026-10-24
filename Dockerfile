@@ -1,5 +1,5 @@
-# Use Node.js LTS on Alpine for smaller image size
-FROM node:20-alpine
+# Node.js 24 LTS on Alpine for smaller image size
+FROM node:24-alpine
 
 # Install ffmpeg for freeze monitor feature
 RUN apk add --no-cache ffmpeg
