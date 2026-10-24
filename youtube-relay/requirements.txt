@@ -1,4 +1,7 @@
 requests>=2.31.0
+# requests pulls certifi; older bundles include emSign roots with compromised
+# intermediate keys (GHSA-6q48-6c7w-9gw2)
+certifi>=2026.10.19
 yt-dlp>=2024.1.0
 python-dotenv>=1.0.0
 pytest>=7.0.0
