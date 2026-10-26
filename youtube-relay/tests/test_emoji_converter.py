@@ -364,3 +364,38 @@ def test_convert_does_not_treat_unicode_emojis_as_unmapped(tmp_path):
     converter._mappings = {}
     converter.convert("nice \U0001F1E7\U0001F1F7 :real_unmapped:")
     assert set(converter.unmapped) == {":real_unmapped:"}
+
+
+def test_convert_falls_back_to_youtube_defaults(tmp_path):
+    """YouTube's own emojis convert without a mapping and are not recorded as unmapped."""
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter(str(tmp_path))
+    converter._mappings = {}
+
+    assert converter.convert("hi :hand-pink-waving: :yt:") == "hi 👋 "
+    assert converter.unmapped == {}
+
+
+def test_file_mapping_overrides_youtube_defaults(tmp_path):
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter(str(tmp_path))
+    converter._mappings = {":hand-pink-waving:": "HeyGuys"}
+
+    assert converter.convert(":hand-pink-waving:") == "HeyGuys"
+    assert converter.has_mapping(":hand-pink-waving:")
+    assert not converter.has_mapping(":face-blue-smiling:")
+
+
+def test_unmapped_entry_includes_noted_image(tmp_path):
+    from emoji_converter import EmojiConverter
+
+    converter = EmojiConverter(str(tmp_path))
+    converter._mappings = {}
+    converter.note_image(":_kandyHype:", "https://yt3.example/hype")
+
+    converter.convert("go :_kandyHype: :plain:")
+
+    assert converter.unmapped[":_kandyHype:"]["image"] == "https://yt3.example/hype"
+    assert "image" not in converter.unmapped[":plain:"]

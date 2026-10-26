@@ -107,8 +107,27 @@ describe("emojiMappingStore", () => {
         emoji: ":common:",
         count: 7,
         lastSeen: "2026-09-16T09:00:00Z",
-        sample: ":common: hi"
+        sample: ":common: hi",
+        image: null
       });
+    });
+
+    it("passes through the emoji image URL, but only over https", async () => {
+      mockFiles({
+        unmapped: JSON.stringify({
+          ":_kandyHype:": {
+            count: 2,
+            last_seen: "x",
+            sample: "",
+            image: "https://yt3.ggpht.com/a"
+          },
+          ":sneaky:": { count: 1, last_seen: "x", sample: "", image: "javascript:alert(1)" }
+        }),
+        mappings: JSON.stringify({})
+      });
+      const result = await loadUnmappedEmojis();
+      expect(result.find((e) => e.emoji === ":_kandyHype:").image).toBe("https://yt3.ggpht.com/a");
+      expect(result.find((e) => e.emoji === ":sneaky:").image).toBeNull();
     });
 
     it("drops entries that were mapped in the saved mappings file", async () => {

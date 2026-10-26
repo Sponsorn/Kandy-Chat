@@ -177,6 +177,53 @@ def test_poll_chat_handles_emoji_runs():
     assert messages[0]["message"] == "hi :heart:"
 
 
+def test_poll_chat_reports_custom_emoji_images():
+    from youtube_reader import YouTubeChatReader
+
+    seen = []
+    reader = YouTubeChatReader(
+        "https://www.youtube.com/@TestChannel",
+        on_custom_emoji=lambda code, url: seen.append((code, url)),
+    )
+    response_data = {
+        "continuationContents": {
+            "liveChatContinuation": {
+                "actions": [{
+                    "addChatItemAction": {
+                        "item": {
+                            "liveChatTextMessageRenderer": {
+                                "authorName": {"simpleText": "Alice"},
+                                "message": {"runs": [
+                                    {"emoji": {
+                                        "emojiId": "UCabc/xyz",
+                                        "shortcuts": [":_kandyHype:"],
+                                        "isCustomEmoji": True,
+                                        "image": {"thumbnails": [
+                                            {"url": "https://yt3.example/small"},
+                                            {"url": "https://yt3.example/large"},
+                                        ]},
+                                    }},
+                                    {"emoji": {"emojiId": "😂", "shortcuts": [":joy:"]}},
+                                ]},
+                            }
+                        }
+                    }
+                }],
+                "continuations": [],
+            }
+        }
+    }
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = response_data
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("youtube_reader.requests.post", return_value=mock_resp):
+        messages, _, _ = reader._poll_chat("token", "key")
+
+    assert messages[0]["message"] == ":_kandyHype:😂"
+    assert seen == [(":_kandyHype:", "https://yt3.example/large")]
+
+
 def test_reader_stop_sets_running_false():
     """Calling stop() sets running to False."""
     from youtube_reader import YouTubeChatReader
@@ -402,10 +449,31 @@ def test_no_live_stream_uses_flat_wait_not_backoff():
 # --- emoji rendering ---
 
 
-def test_render_emoji_prefers_ascii_shortcode():
+def test_render_emoji_prefers_unicode_for_standard_emojis():
     from youtube_reader import _render_emoji_run
 
-    assert _render_emoji_run({"emojiId": "❤️", "shortcuts": [":heart:"]}) == ":heart:"
+    run = {"emojiId": "😂", "shortcuts": [":face_with_tears_of_joy:", ":joy:"]}
+    assert _render_emoji_run(run) == "😂"
+    assert _render_emoji_run(run, keep_shortcode=lambda code: False) == "😂"
+
+
+def test_render_emoji_keeps_mapped_shortcode():
+    """A shortcode the moderators mapped wins over the Unicode emoji."""
+    from youtube_reader import _render_emoji_run
+
+    run = {"emojiId": "😂", "shortcuts": [":face_with_tears_of_joy:", ":joy:"]}
+    assert _render_emoji_run(run, keep_shortcode=lambda code: code == ":joy:") == ":joy:"
+
+
+def test_render_emoji_custom_uses_shortcode():
+    from youtube_reader import _render_emoji_run
+
+    run = {
+        "emojiId": "UCkszU2WH9gy1mb0dV-11UJg/abc",
+        "shortcuts": [":face-blue-smiling:"],
+        "isCustomEmoji": True,
+    }
+    assert _render_emoji_run(run) == ":face-blue-smiling:"
 
 
 def test_render_emoji_uses_unicode_when_no_ascii_shortcode():

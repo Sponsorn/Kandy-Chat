@@ -31,7 +31,12 @@ class YouTubeToTwitchBot:
         from youtube_reader import YouTubeChatReader
         from twitch_bot import TwitchBot
 
-        self.youtube = YouTubeChatReader(config["youtube_channel_url"])
+        # The converter is created further down; the lambdas look it up per call
+        self.youtube = YouTubeChatReader(
+            config["youtube_channel_url"],
+            keep_shortcode=lambda code: self.emoji_converter.has_mapping(code),
+            on_custom_emoji=lambda code, url: self.emoji_converter.note_image(code, url),
+        )
 
         self.twitch = TwitchBot(
             bot_user_id=config["twitch_bot_user_id"],

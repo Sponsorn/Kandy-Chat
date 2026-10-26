@@ -874,6 +874,23 @@ body {
   max-width: 100%;
 }
 
+.unmapped-image {
+  width: 1.75rem;
+  height: 1.75rem;
+  object-fit: contain;
+}
+
+.unmapped-suggestions {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+
+.unmapped-suggestion {
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0.25rem 0.4rem;
+}
+
 .unmapped-actions {
   display: inline-flex;
   gap: 0.25rem;

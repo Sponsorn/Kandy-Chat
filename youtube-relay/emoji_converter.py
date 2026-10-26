@@ -6,6 +6,8 @@ import re
 import time
 from datetime import datetime, timezone
 
+from youtube_emoji_defaults import YOUTUBE_EMOJI_DEFAULTS
+
 _UNICODE_EMOJI = (
     r"(?:[\U0001F1E6-\U0001F1FF]{2}"  # flags
     r"|(?:[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\u3030\u303D\u3297\u3299]"
@@ -25,7 +27,8 @@ class EmojiConverter:
     """Converts YouTube emoji shortcuts using a configurable mapping file.
 
     Reads data/emoji-mappings.json (shared with Kandy Chat dashboard).
-    Reloads periodically to pick up dashboard changes.
+    Reloads periodically to pick up dashboard changes. YouTube's own emojis
+    fall back to YOUTUBE_EMOJI_DEFAULTS when the file has no mapping for them.
     """
 
     def __init__(self, data_dir, reload_interval=300):
@@ -46,6 +49,8 @@ class EmojiConverter:
         self._unmapped = {}
         self._unmapped_dirty = False
         self._unmapped_last_flush = 0
+        # Image URL of each custom emoji seen in chat, so the unmapped list can show it
+        self._images = {}
         self._load_unmapped()
 
     def reload(self):
@@ -84,6 +89,15 @@ class EmojiConverter:
         except (FileNotFoundError, json.JSONDecodeError, OSError):
             self._unmapped = {}
 
+    def has_mapping(self, emoji):
+        """True when emoji-mappings.json maps this shortcode."""
+        return emoji in self._mappings
+
+    def note_image(self, emoji, url):
+        """Remember what a custom emoji looks like (called from the reader thread)."""
+        if len(self._images) < _UNMAPPED_MAX or emoji in self._images:
+            self._images[emoji] = url
+
     def record_unmapped(self, emoji, sample=None):
         """Note that an unmapped shortcode was seen in chat."""
         entry = self._unmapped.get(emoji)
@@ -95,6 +109,9 @@ class EmojiConverter:
         entry["last_seen"] = now
         if sample and not entry.get("sample"):
             entry["sample"] = sample[:200]
+        image = self._images.get(emoji)
+        if image:
+            entry["image"] = image
         self._unmapped_dirty = True
 
         # Bound the file: drop the least recently seen entries
@@ -200,6 +217,8 @@ class EmojiConverter:
             emoji = match.group(0)
             if emoji in self._mappings:
                 return self._mappings[emoji]
+            if emoji in YOUTUBE_EMOJI_DEFAULTS:
+                return YOUTUBE_EMOJI_DEFAULTS[emoji]
             if emoji not in seen_unmapped:
                 seen_unmapped.add(emoji)
                 self.record_unmapped(emoji, sample=message)

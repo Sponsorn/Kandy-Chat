@@ -56,24 +56,31 @@ def _log(msg):
 _SHORTCODE_RE = re.compile(r"^:[a-zA-Z0-9_-]+:$")
 
 
-def _render_emoji_run(emoji):
+def _render_emoji_run(emoji, keep_shortcode=None):
     """Turn an innertube emoji run into text.
 
     Preference order:
-    1. an ASCII shortcode such as ``:heart:`` (so emoji-mappings.json applies)
-    2. the plain Unicode emoji when YouTube gives one and it is not a custom
-       channel emoji, e.g. flags, which have no ASCII shortcode
+    1. the plain Unicode emoji when YouTube gives one and it is not a custom
+       channel emoji, unless ``keep_shortcode(code)`` is true for one of its
+       shortcodes (a mapping the moderators set up in emoji-mappings.json)
+    2. an ASCII shortcode such as ``:face-blue-smiling:`` (so emoji-mappings.json applies)
     3. the accessibility label, wrapped in colons only when it is ASCII
     """
-    shortcuts = emoji.get("shortcuts") or []
-    for shortcut in shortcuts:
-        if isinstance(shortcut, str) and _SHORTCODE_RE.match(shortcut):
-            return shortcut
+    shortcuts = [
+        s for s in (emoji.get("shortcuts") or []) if isinstance(s, str) and _SHORTCODE_RE.match(s)
+    ]
 
     emoji_id = emoji.get("emojiId") or ""
     is_custom = bool(emoji.get("isCustomEmoji")) or "/" in emoji_id
     if emoji_id and not is_custom and not emoji_id.isascii():
+        if keep_shortcode:
+            for shortcut in shortcuts:
+                if keep_shortcode(shortcut):
+                    return shortcut
         return emoji_id
+
+    if shortcuts:
+        return shortcuts[0]
 
     label = (
         emoji.get("image", {})
@@ -82,10 +89,21 @@ def _render_emoji_run(emoji):
         .get("label", "")
     )
     if not label:
-        return shortcuts[0] if shortcuts else ""
+        raw = emoji.get("shortcuts") or []
+        return raw[0] if raw else ""
     if label.isascii():
         return f":{label.strip().replace(' ', '_')}:"
     return label
+
+
+def _emoji_image_url(emoji):
+    """Largest thumbnail URL of an innertube emoji run, or None."""
+    thumbnails = emoji.get("image", {}).get("thumbnails") or []
+    for thumb in reversed(thumbnails):
+        url = thumb.get("url") if isinstance(thumb, dict) else None
+        if url:
+            return url
+    return None
 
 
 class TransientPollError(Exception):
@@ -111,8 +129,14 @@ class YouTubeChatReader:
     - message ids are remembered so a reconnect does not replay messages
     """
 
-    def __init__(self, channel_url):
+    def __init__(self, channel_url, keep_shortcode=None, on_custom_emoji=None):
         self.channel_url = channel_url
+        # keep_shortcode(code) -> bool: emit this shortcode instead of the
+        # Unicode emoji (the moderators mapped it to something else)
+        self._keep_shortcode = keep_shortcode
+        # on_custom_emoji(code, image_url): called for emojis rendered as a
+        # shortcode, so the dashboard can show what an unmapped one looks like
+        self._on_custom_emoji = on_custom_emoji
         self.queue = queue.Queue()
         self.running = False
         self._thread = None
@@ -327,7 +351,12 @@ class YouTubeChatReader:
                 if "text" in run:
                     parts.append(run["text"])
                 elif "emoji" in run:
-                    parts.append(_render_emoji_run(run["emoji"]))
+                    rendered = _render_emoji_run(run["emoji"], self._keep_shortcode)
+                    if self._on_custom_emoji and _SHORTCODE_RE.match(rendered):
+                        image_url = _emoji_image_url(run["emoji"])
+                        if image_url:
+                            self._on_custom_emoji(rendered, image_url)
+                    parts.append(rendered)
 
             text = "".join(parts).strip()
             if text:

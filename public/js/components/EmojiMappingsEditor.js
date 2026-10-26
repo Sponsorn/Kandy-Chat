@@ -2,6 +2,7 @@ import { html } from "htm/preact";
 import { useState, useEffect, useMemo } from "preact/hooks";
 import { emojiMappingsData, fetchEmojiMappings } from "../state.js";
 import { emojiMappings } from "../api.js";
+import { loadEmojiData, suggestEmojis } from "../emojiSuggest.js";
 
 function EmojiTag({ emoji, onRemove }) {
   const [removing, setRemoving] = useState(false);
@@ -83,9 +84,13 @@ function formatLastSeen(iso) {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-function UnmappedRow({ entry, onMap }) {
+function UnmappedRow({ entry, onMap, emojiData }) {
   const [replacement, setReplacement] = useState("");
   const [busy, setBusy] = useState(false);
+  const suggestions = useMemo(
+    () => (emojiData.length ? suggestEmojis(entry.emoji, emojiData) : []),
+    [entry.emoji, emojiData]
+  );
 
   const submit = async (value) => {
     setBusy(true);
@@ -98,6 +103,15 @@ function UnmappedRow({ entry, onMap }) {
 
   return html`
     <div class="unmapped-row">
+      ${entry.image
+        ? html`<img
+            class="unmapped-image"
+            src=${entry.image}
+            alt=${entry.emoji}
+            loading="lazy"
+            onError=${(e) => (e.target.style.display = "none")}
+          />`
+        : ""}
       <code>${entry.emoji}</code>
       <span class="unmapped-meta">
         seen ${entry.count}×${entry.lastSeen ? `, last ${formatLastSeen(entry.lastSeen)}` : ""}
@@ -105,6 +119,22 @@ function UnmappedRow({ entry, onMap }) {
           ? html`<span class="unmapped-sample" title=${entry.sample}>${entry.sample}</span>`
           : ""}
       </span>
+      ${suggestions.length > 0 &&
+      html`<span class="unmapped-suggestions">
+        ${suggestions.map(
+          (emoji) => html`
+            <button
+              type="button"
+              class="btn btn-sm unmapped-suggestion"
+              title=${`Map to ${emoji}`}
+              onClick=${() => submit(emoji)}
+              disabled=${busy}
+            >
+              ${emoji}
+            </button>
+          `
+        )}
+      </span>`}
       <form
         class="unmapped-actions"
         onSubmit=${(e) => {
@@ -145,6 +175,7 @@ function UnmappedEmojis({ onMap, refreshKey }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [emojiData, setEmojiData] = useState([]);
 
   const load = async () => {
     try {
@@ -165,6 +196,11 @@ function UnmappedEmojis({ onMap, refreshKey }) {
     return () => clearInterval(timer);
   }, [refreshKey]);
 
+  // Only download the suggestion dataset when there is something to suggest for
+  useEffect(() => {
+    if (entries.length > 0 && emojiData.length === 0) loadEmojiData().then(setEmojiData);
+  }, [entries.length > 0]);
+
   return html`
     <div class="card" style="margin-bottom: 1rem;">
       <div class="card-header">
@@ -183,8 +219,9 @@ function UnmappedEmojis({ onMap, refreshKey }) {
       </div>
       <div class="card-body">
         <p style="margin-bottom: 0.75rem; color: var(--text-muted); font-size: 0.75rem;">
-          Shortcodes the relay saw in YouTube chat that have no mapping yet. Map one to a
-          replacement, or strip it so it is removed from relayed messages.
+          Shortcodes the relay saw in YouTube chat that have no mapping yet. Click a suggested emoji
+          to map it, type your own replacement, or strip it so it is removed from relayed messages.
+          Standard emojis and YouTube's built-in ones are converted automatically.
         </p>
         ${error && html`<div class="alert alert-error" style="margin-bottom: 1rem;">${error}</div>`}
         ${entries.length === 0
@@ -195,7 +232,13 @@ function UnmappedEmojis({ onMap, refreshKey }) {
             </div>`
           : html`<div class="unmapped-list">
               ${entries.map(
-                (entry) => html`<${UnmappedRow} key=${entry.emoji} entry=${entry} onMap=${onMap} />`
+                (entry) =>
+                  html`<${UnmappedRow}
+                    key=${entry.emoji}
+                    entry=${entry}
+                    onMap=${onMap}
+                    emojiData=${emojiData}
+                  />`
               )}
             </div>`}
       </div>

@@ -76,7 +76,7 @@ async function removeEmojiMapping(emoji) {
 /**
  * Load the unmapped emojis recorded by youtube-relay, minus anything that has
  * been mapped since. Sorted by how often they were seen, most frequent first.
- * @returns {Promise<Array<{ emoji: string, count: number, lastSeen: string|null, sample: string }>>}
+ * @returns {Promise<Array<{ emoji: string, count: number, lastSeen: string|null, sample: string, image: string|null }>>}
  */
 async function loadUnmappedEmojis() {
   let raw;
@@ -97,7 +97,9 @@ async function loadUnmappedEmojis() {
       emoji,
       count: Number.isFinite(entry.count) ? entry.count : 0,
       lastSeen: typeof entry.last_seen === "string" ? entry.last_seen : null,
-      sample: typeof entry.sample === "string" ? entry.sample : ""
+      sample: typeof entry.sample === "string" ? entry.sample : "",
+      image:
+        typeof entry.image === "string" && entry.image.startsWith("https://") ? entry.image : null
     });
   }
 
